@@ -1,13 +1,10 @@
 #  Historical sensors for Home Assistant ![](icon-64.png)
 
---
-
 Feed historical data into Home Assistant database. 
 
-HomeAssistant architecture is built around polling (or pushing) data from devices or providers in "real-time".
+HomeAssistant architecture is built around polling (or pushing) data from devices, or data providers, in "real-time".
 
-Some data sources (energy, water or gas providers mainly) can't be polled in real-time or readings are not accurate. However reading historical data, like last month consumption, it's possible and accurate. This module adds support to this.
-
+Some data sources (e.g, energy, water or gas providers) can't be polled in real-time or readings are not accurate. However reading historical data, like last month consumption, it's possible and accurate. This module adds support to this.
 
 This module uses the `recoder` component and custom state creation store states "from the past".
 
