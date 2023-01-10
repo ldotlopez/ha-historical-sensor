@@ -1,5 +1,15 @@
 #  Historical sensors for Home Assistant ![](icon-64.png)
 
+
+[![Upload Python Package](https://github.com/ldotlopez/ha-historical-sensor/actions/workflows/python-publish.yml/badge.svg)](https://github.com/ldotlopez/ideenergy/actions/workflows/python-publish.yml)
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
+![GitHub Release (latest SemVer including pre-releases)](https://img.shields.io/github/v/release/ldotlopez/ha-historical-sensor?include_prereleases)
+[![CodeQL](https://github.com/ldotlopez/ha-historical-sensor/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/ldotlopez/ideenergy/actions/workflows/codeql-analysis.yml)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/ambv/black)
+
+[ideenergy](https://github.com/ldotlopez/ideenergy) integration for [home-assistant](https://home-assistant.io/)
+
+
 Feed historical data into Home Assistant database. 
 
 HomeAssistant architecture is built around polling (or pushing) data from devices, or data providers, in "real-time".
