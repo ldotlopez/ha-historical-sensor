@@ -1,0 +1,7 @@
+*.egg-info/
+*.pyc
+*.sublime-project
+__pycache__
+dist/
+home-assistant-historical-sensor.sublime-workspace
+Pipfile.lock
