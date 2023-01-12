@@ -1,14 +1,12 @@
 #  Historical sensors for Home Assistant ![](icon-64.png)
 
-
-[![Upload Python Package](https://github.com/ldotlopez/ha-historical-sensor/actions/workflows/python-publish.yml/badge.svg)](https://github.com/ldotlopez/ha-historical-sensor/actions/workflows/python-publish.yml)
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
+<!-- Code and releases -->
 ![GitHub Release (latest SemVer including pre-releases)](https://img.shields.io/github/v/release/ldotlopez/ha-historical-sensor?include_prereleases)
 [![CodeQL](https://github.com/ldotlopez/ha-historical-sensor/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/ldotlopez/ha-historical-sensor/actions/workflows/codeql-analysis.yml)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/ambv/black)
 
-[ideenergy](https://github.com/ldotlopez/ideenergy) integration for [home-assistant](https://home-assistant.io/)
-
+<!-- Sponsors -->
+<a href="https://www.buymeacoffee.com/zepolson" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 30px !important;width: 105px !important;" ></a>
 
 Feed historical data into Home Assistant database. 
 
