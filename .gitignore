@@ -5,3 +5,6 @@ __pycache__
 dist/
 home-assistant-historical-sensor.sublime-workspace
 Pipfile.lock
+config
+!config/custom_components
+!config/configuration.yaml
