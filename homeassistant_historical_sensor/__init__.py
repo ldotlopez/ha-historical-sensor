@@ -18,6 +18,6 @@
 # USA.
 
 
-from .sensor import DatedState, HistoricalSensor
+from .sensor import DatedState, HistoricalSensor, PollUpdateMixin
 
-__all__ = ["DatedState", "HistoricalSensor"]
+__all__ = ["DatedState", "HistoricalSensor", "PollUpdateMixin"]

@@ -26,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
 import sqlalchemy.exc
+import sqlalchemy.orm
 from homeassistant.components import recorder
 from homeassistant.components.recorder import db_schema as rec_db_schema
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -55,32 +56,35 @@ class DatedState:
 class HistoricalSensor:
     """The HistoricalSensor class provides:
 
-    - should_poll
-    - state
+    - self.historical_states
+    - self.should_poll
+    - self.state
+    - self.async_added_to_hass()
 
     Sensors based on HistoricalSensor must provide:
-    - async_update_historical_states
-    - historical_states property o self._historical_states
+    - self._attr_historical_states
+    - self.async_update_historical()
     """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._historical_states = []
+        self._attr_historical_states = []
 
-    async def async_update_historical_states(self):
-        """async_update_historical_states()
-
-        Implement this async method to fetch historical data from provider and store
-        into self._historical_states
-        """
-        _LOGGER.debug("You must override this method")
+    async def async_added_to_hass(self) -> None:
+        if self.should_poll:
+            raise Exception("poll model is not supported")
 
     @property
     def should_poll(self):
-        # HistoricalEntities MUST NOT poll.
+        # HistoricalSensors MUST NOT poll.
         # Polling creates incorrect states at intermediate time points.
 
         return False
+
+    # @property
+    # def available(self):
+    #     # Leave us alone!
+    #     return False
 
     @property
     def state(self):
@@ -89,7 +93,7 @@ class HistoricalSensor:
         # Another aproach is to return data from historical entity, but causes
         # wrong results. Keep here for reference.
         #
-        # HistoricalEntities doesnt' pull but state is accessed only once when
+        # HistoricalSensors doesn't use poll but state is accessed only once when
         # the sensor is registered for the first time in the database
         #
         # if state := self.historical_state():
@@ -99,14 +103,26 @@ class HistoricalSensor:
 
     @property
     def historical_states(self):
-        return self._historical_states
+        if hasattr(self, "_attr_historical_states"):
+            return self._attr_historical_states
+        else:
+            return []
 
-    # @property
-    # def available(self):
-    #     # Leave us alone!
-    #     return False
+    @abstractmethod
+    async def async_update_historical(self):
+        """async_update_historical()
+
+        Implement this async method to fetch historical data from provider and store
+        into self._attr_historical_states
+        """
+        raise NotImplementedError()
 
     def async_write_ha_historical_states(self):
+        """async_write_ha_historical_states()
+
+        This method writes `self.historical_states` into database
+        """
+
         def _normalize_time_state(st):
             if not isinstance(st, DatedState):
                 return None
@@ -153,7 +169,7 @@ class HistoricalSensor:
                 _LOGGER.debug("Warning: Current recorder schema is not supported")
                 _LOGGER.debug(
                     "Invalid states can't be deleted from recorder."
-                    "This is not critical just unsightly for some graphs "
+                    + "This is not critical just unsightly for some graphs "
                 )
 
         #
@@ -190,7 +206,7 @@ class HistoricalSensor:
                 cutoff = latest_db_state.last_updated.replace(tzinfo=timezone.utc)
                 _LOGGER.debug(
                     f"{self.entity_id}: found previous states in db "
-                    f"(latest is dated at: {cutoff}, value:{latest_db_state.state})"
+                    + f"(latest is dated at: {cutoff}, value:{latest_db_state.state})"
                 )
                 dated_states = [x for x in dated_states if x.when > cutoff]
 
@@ -200,7 +216,7 @@ class HistoricalSensor:
 
             _LOGGER.debug(
                 f"{self.entity_id}: {len(dated_states)} states pass the cutoff, "
-                f"extending from {dated_states[0].when} to {dated_states[-1].when}"
+                + f"extending from {dated_states[0].when} to {dated_states[-1].when}"
             )
 
             #
@@ -294,16 +310,23 @@ class HistoricalSensor:
         ##
 
 
-class CustomUpdateEntity(Entity):
-    """
-    CustomPolling provides:
+class PollUpdateMixin(Entity):
+    """PollUpdateMixin for simulate poll update model
+
+    This mixin provides:
 
       - UPDATE_INTERVAL: timedelta
       - async_added_to_hass(self)
-      - async_custom_update(self)
+      - async_will_remove_from_hass(self)
+      - _async_historical_handle_update(self)
     """
 
-    UPDATE_INTERVAL: timedelta = timedelta(seconds=30)
+    """Historical Sensors have long update periods"""
+    UPDATE_INTERVAL: timedelta = timedelta(hours=1)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._remove_time_tracker_fn = None
 
     async def async_added_to_hass(self) -> None:
         """Once added to hass:
@@ -311,22 +334,24 @@ class CustomUpdateEntity(Entity):
         - Setup a peridioc call to update the entity
         """
 
-        if self.should_poll:
-            raise Exception("poll model is not supported")
+        await super().async_added_to_hass()
 
-        _LOGGER.debug(f"{self.entity_id}: added to hass")  # type: ignore[attr-defined]
-
-        await self.async_custom_update()
-        async_track_time_interval(
+        _LOGGER.debug(f"{self.entity_id}: added to hass, do initial update")  # type: ignore[attr-defined]
+        await self._async_historical_handle_update()
+        self._remove_time_tracker_fn = async_track_time_interval(
             self.hass,
-            self.async_custom_update,
+            self._async_historical_handle_update,
             self.UPDATE_INTERVAL,
         )
+
         _LOGGER.debug(
             f"{self.entity_id}: "
-            f"updating each {self.UPDATE_INTERVAL.total_seconds()} seconds"
+            + f"updating each {self.UPDATE_INTERVAL.total_seconds()} seconds "
         )
 
-    @abstractmethod
-    async def async_custom_update(self) -> None:
-        raise NotImplementedError()
+    async def async_will_remove_from_hass(self) -> None:
+        self._remove_time_tracker_fn()
+
+    async def _async_historical_handle_update(self) -> None:
+        await self.async_update_historical()
+        self.async_write_ha_historical_states()

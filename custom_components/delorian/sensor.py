@@ -27,8 +27,7 @@
 # https://github.com/home-assistant/core/blob/dev/homeassistant/components/sensor/__init__.py
 
 
-import logging
-from typing import Dict, List, Optional
+from typing import Optional
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -38,25 +37,23 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ENERGY_KILO_WATT_HOUR,
-    STATE_UNKNOWN,
-    STATE_UNAVAILABLE,
 )
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import DiscoveryInfoType
-from homeassistant.util import dt as dt_util
-
 from .const import DOMAIN, NAME
 from .api import API
-from homeassistant_historical_sensor import DatedState, HistoricalSensor
+from homeassistant_historical_sensor import (
+    DatedState,
+    HistoricalSensor,
+    PollUpdateMixin,
+)
 
 PLATFORM = "sensor"
-_LOGGER = logging.getLogger(__name__)
 
 
-class HistoricalConsumption(HistoricalSensor, SensorEntity):
-    I_DE_PLATFORM = PLATFORM
-    DELORIAN_ENTITY_NAME = "Historical Consumption"
+class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
+    DELORIAN_ENTITY_NAME = "Delorian sensor"
 
     def __init__(self, *args, **kwargs):
         self._attr_has_entity_name = True
@@ -72,13 +69,26 @@ class HistoricalConsumption(HistoricalSensor, SensorEntity):
         self._attr_state = None
         self.api = API()
 
-    @property
-    def historical_states(self):
-        return []
+    async def async_update_historical(self):
+        def dated_state_for_api_data_point(dp):
+            dt, state = dp
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_historical_states()
+            # Use with SensorStateClass.MEASUREMENT
+            return DatedState(
+                state=state,
+                when=dt,
+            )
+
+            # Use with SensorStateClass.TOTAL (or TOTAL_INCREASING?)
+            # return DatedState(
+            #     state=state,
+            #     when=dt + timedelta(hours=1),
+            #     attributes=dict(last_reset=dt),
+            # )
+
+        self._attr_historical_states = [
+            dated_state_for_api_data_point(dp) for dp in self.api.fetch()
+        ]
 
 
 async def async_setup_entry(
@@ -89,6 +99,6 @@ async def async_setup_entry(
 ):
     device_info = hass.data[DOMAIN][config_entry.entry_id]
     sensors = [
-        HistoricalConsumption(config_entry=config_entry, device_info=device_info),
+        Sensor(config_entry=config_entry, device_info=device_info),
     ]
     async_add_devices(sensors)
