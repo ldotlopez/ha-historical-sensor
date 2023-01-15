@@ -35,19 +35,18 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (
-    ENERGY_KILO_WATT_HOUR,
-)
+from homeassistant.const import ENERGY_KILO_WATT_HOUR
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import DiscoveryInfoType
-from .const import DOMAIN, NAME
-from .api import API
 from homeassistant_historical_sensor import (
     DatedState,
     HistoricalSensor,
     PollUpdateMixin,
 )
+
+from .api import API
+from .const import DOMAIN, NAME
 
 PLATFORM = "sensor"
 

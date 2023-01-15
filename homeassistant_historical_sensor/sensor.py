@@ -29,6 +29,14 @@ import sqlalchemy.exc
 import sqlalchemy.orm
 from homeassistant.components import recorder
 from homeassistant.components.recorder import db_schema as rec_db_schema
+from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
+from homeassistant.components.recorder.statistics import (
+    async_add_external_statistics,
+    get_last_statistics,
+    get_metadata,
+    split_statistic_id,
+)
+from homeassistant.components.sensor import SensorEntity
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_time_interval
@@ -53,7 +61,7 @@ class DatedState:
 #   or 'unavailable'
 
 
-class HistoricalSensor:
+class HistoricalSensor(SensorEntity):
     """The HistoricalSensor class provides:
 
     - self.historical_states
@@ -147,8 +155,56 @@ class HistoricalSensor:
         if not dated_states:
             return
 
-        fn = functools.partial(self._save_states_into_recorder, dated_states)
-        self._get_recorder_instance().async_add_executor_job(fn)
+        self._get_recorder_instance().async_add_executor_job(
+            self._save_states_into_recorder, dated_states
+        )
+
+        # _, metadata = (
+        #     await self._get_recorder_instance().async_add_executor_job(
+        #         functools.partial(
+        #             get_metadata, self.hass, statistic_ids=[self.entity_id]
+        #         )
+        #     )
+        # )[self.entity_id]
+        statistic_id = self.entity_id.replace(".", ":")
+        metadata = StatisticMetaData(
+            has_mean=False,
+            has_sum=True,
+            name=f"{self.name} statistics",
+            source=split_statistic_id(statistic_id)[0],
+            statistic_id=statistic_id,
+            unit_of_measurement=self.unit_of_measurement,
+        )
+        # existing_stats = await self._get_recorder_instance().async_add_executor_job(
+        #     get_last_statistics,
+        #     self.hass,
+        #     1,
+        #     metadata["statistic_id"],
+        #     True,
+        #     set("sum"),
+        # )
+
+        dated_states = sorted(dated_states, key=lambda x: x.when)
+        # if existing_stats:
+        #     dated_states = [
+        #         x
+        #         for x in dated_states
+        #         if x.when >= existing_stats[metadata["statistic_id"]][0]["end"]
+        #     ]
+
+        statistic_data = []
+        acc = 0
+        for x in dated_states:
+            acc = acc + x.state
+            statistic_data.append(
+                StatisticData(
+                    start=x.when,
+                    state=x.state,
+                    sum=acc,
+                )
+            )
+
+        async_add_external_statistics(self.hass, metadata, statistic_data)
 
     def _get_recorder_instance(self):
         return recorder.get_instance(self.hass)
@@ -225,7 +281,7 @@ class HistoricalSensor:
 
             db_states = []
             for idx, dt_st in enumerate(dated_states):
-                attrs_as_dict = _build_attributes(self, dt_st.state)
+                attrs_as_dict = dict(_build_attributes(self, dt_st.state))
                 attrs_as_dict.update(dt_st.attributes)
                 attrs_as_str = rec_db_schema.JSON_DUMP(attrs_as_dict)
 
@@ -310,7 +366,7 @@ class HistoricalSensor:
         ##
 
 
-class PollUpdateMixin(Entity):
+class PollUpdateMixin(HistoricalSensor):
     """PollUpdateMixin for simulate poll update model
 
     This mixin provides:
