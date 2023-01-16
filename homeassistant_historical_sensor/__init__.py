@@ -18,9 +18,7 @@
 # USA.
 
 
-import logging
 from .sensor import DatedState, HistoricalSensor, PollUpdateMixin
 
-_LOGGER = logging.getLogger(__name__)
 
 __all__ = ["DatedState", "HistoricalSensor", "PollUpdateMixin"]

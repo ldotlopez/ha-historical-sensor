@@ -18,10 +18,11 @@
 # USA.
 
 
+import logging
 from abc import abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Iterable, List
 
 import sqlalchemy.exc
 import sqlalchemy.orm
@@ -40,7 +41,7 @@ from sqlalchemy import not_, or_
 
 from .patches import _build_attributes, _stringify_state
 
-from . import _LOGGER
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -71,7 +72,43 @@ class HistoricalSensor(SensorEntity):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._attr_historical_states = []
+        self._attr_historical_states: List[DatedState] = []  # type: ignore[annotation-unchecked]
+
+    def get_statatistics_metadata(self) -> StatisticMetaData:
+        # _, metadata = (
+        #     await self._get_recorder_instance().async_add_executor_job(
+        #         functools.partial(
+        #             get_metadata, self.hass, statistic_ids=[self.entity_id]
+        #         )
+        #     )
+        # )[self.entity_id]
+
+        statistic_id = self.entity_id.replace(".", ":")
+        metadata = StatisticMetaData(
+            has_mean=False,
+            has_sum=True,
+            name=f"{self.name} statistics",
+            source=split_statistic_id(statistic_id)[0],
+            statistic_id=statistic_id,
+            unit_of_measurement=self.unit_of_measurement,
+        )
+
+        return metadata
+
+    def calculate_statistic_data(
+        self, dated_states: Iterable[DatedState]
+    ) -> List[StatisticData]:
+        def g():
+            acc = 0
+            for x in dated_states:
+                acc = acc + x.state
+                yield StatisticData(
+                    start=x.when,
+                    state=x.state,
+                    sum=acc,
+                )
+
+        return list(g())
 
     async def async_added_to_hass(self) -> None:
         if self.should_poll:
@@ -126,7 +163,7 @@ class HistoricalSensor(SensorEntity):
         This method writes `self.historical_states` into database
         """
 
-        def _normalize_time_state(st):
+        def _normalize_dated_state_when(st):
             if not isinstance(st, DatedState):
                 return None
 
@@ -139,8 +176,8 @@ class HistoricalSensor(SensorEntity):
             return st
 
         dated_states = self.historical_states
-        dated_states = [_normalize_time_state(x) for x in dated_states]
-        dated_states = [x for x in dated_states if x is not None]
+        dated_states = (_normalize_dated_state_when(x) for x in dated_states)
+        dated_states = (x for x in dated_states if x is not None)
         dated_states = list(sorted(dated_states, key=lambda x: x.when))
 
         _LOGGER.debug(
@@ -153,23 +190,14 @@ class HistoricalSensor(SensorEntity):
         self._get_recorder_instance().async_add_executor_job(
             self._save_states_into_recorder, dated_states
         )
-
-        # _, metadata = (
-        #     await self._get_recorder_instance().async_add_executor_job(
-        #         functools.partial(
-        #             get_metadata, self.hass, statistic_ids=[self.entity_id]
-        #         )
-        #     )
-        # )[self.entity_id]
-        statistic_id = self.entity_id.replace(".", ":")
-        metadata = StatisticMetaData(
-            has_mean=False,
-            has_sum=True,
-            name=f"{self.name} statistics",
-            source=split_statistic_id(statistic_id)[0],
-            statistic_id=statistic_id,
-            unit_of_measurement=self.unit_of_measurement,
+        self.hass.async_add_executor_job(
+            self._save_states_into_statistics, dated_states
         )
+
+    def _get_recorder_instance(self):
+        return recorder.get_instance(self.hass)
+
+    def _save_states_into_statistics(self, dated_states: List[DatedState]):
         # existing_stats = await self._get_recorder_instance().async_add_executor_job(
         #     get_last_statistics,
         #     self.hass,
@@ -179,7 +207,6 @@ class HistoricalSensor(SensorEntity):
         #     set("sum"),
         # )
 
-        dated_states = sorted(dated_states, key=lambda x: x.when)
         # if existing_stats:
         #     dated_states = [
         #         x
@@ -187,24 +214,13 @@ class HistoricalSensor(SensorEntity):
         #         if x.when >= existing_stats[metadata["statistic_id"]][0]["end"]
         #     ]
 
-        statistic_data = []
-        acc = 0
-        for x in dated_states:
-            acc = acc + x.state
-            statistic_data.append(
-                StatisticData(
-                    start=x.when,
-                    state=x.state,
-                    sum=acc,
-                )
-            )
+        async_add_external_statistics(
+            self.hass,
+            self.get_statatistics_metadata(),
+            list(self.calculate_statistic_data(dated_states)),
+        )
 
-        async_add_external_statistics(self.hass, metadata, statistic_data)
-
-    def _get_recorder_instance(self):
-        return recorder.get_instance(self.hass)
-
-    def _save_states_into_recorder(self, dated_states):
+    def _save_states_into_recorder(self, dated_states: List[DatedState]):
         #
         # Cleanup invalid states in database
         #
@@ -274,7 +290,8 @@ class HistoricalSensor(SensorEntity):
             # Build recorder State, StateAttributes and Event
             #
 
-            db_states = []
+            db_states: List[rec_db_schema.States] = []
+
             for idx, dt_st in enumerate(dated_states):
                 attrs_as_dict = dict(_build_attributes(self, dt_st.state))
                 attrs_as_dict.update(dt_st.attributes)
@@ -387,11 +404,11 @@ class PollUpdateMixin(HistoricalSensor):
 
         await super().async_added_to_hass()
 
-        _LOGGER.debug(f"{self.entity_id}: added to hass, do initial update")  # type: ignore[attr-defined]
+        _LOGGER.debug(f"{self.entity_id}: added to hass, do initial update")
         await self._async_historical_handle_update()
         self._remove_time_tracker_fn = async_track_time_interval(
             self.hass,
-            self._async_historical_handle_update,
+            self._async_historical_handle_update,  # type: ignore[call-arg]
             self.UPDATE_INTERVAL,
         )
 
@@ -401,7 +418,8 @@ class PollUpdateMixin(HistoricalSensor):
         )
 
     async def async_will_remove_from_hass(self) -> None:
-        self._remove_time_tracker_fn()
+        if self._remove_time_tracker_fn:
+            self._remove_time_tracker_fn()
 
     async def _async_historical_handle_update(self) -> None:
         await self.async_update_historical()
