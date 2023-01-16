@@ -18,8 +18,6 @@
 # USA.
 
 
-import functools
-import logging
 from abc import abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -32,20 +30,17 @@ from homeassistant.components.recorder import db_schema as rec_db_schema
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
 from homeassistant.components.recorder.statistics import (
     async_add_external_statistics,
-    get_last_statistics,
-    get_metadata,
     split_statistic_id,
 )
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 from sqlalchemy import not_, or_
 
 from .patches import _build_attributes, _stringify_state
 
-_LOGGER = logging.getLogger(__name__)
+from . import _LOGGER
 
 
 @dataclass
