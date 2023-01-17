@@ -114,6 +114,8 @@ class HistoricalSensor(SensorEntity):
         if self.should_poll:
             raise Exception("poll model is not supported")
 
+        await super().async_added_to_hass()
+
     @property
     def should_poll(self):
         # HistoricalSensors MUST NOT poll.
