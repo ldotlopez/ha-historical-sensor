@@ -59,32 +59,28 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         self._attr_unique_id = NAME
         self._attr_entity_id = NAME
 
-        self._attr_device_class = SensorDeviceClass.ENERGY
-        # self._attr_state_class = SensorStateClass.MEASUREMENT
-        self._attr_native_unit_of_measurement = ENERGY_KILO_WATT_HOUR
         self._attr_entity_registry_enabled_default = True
         self._attr_state = None
+
+        # Simulate energy consumption source
+        self._attr_device_class = SensorDeviceClass.ENERGY
+        self._attr_native_unit_of_measurement = ENERGY_KILO_WATT_HOUR
+
+        # Without state-class attr HomeAssistant will not show this sensor as
+        # source for energy stats leaving generated statistics as the only
+        # source.
+
+        # self._attr_state_class = SensorStateClass.MEASUREMENT
+
         self.api = API()
 
     async def async_update_historical(self):
-        def dated_state_for_api_data_point(dp):
-            dt, state = dp
-
-            # Use with SensorStateClass.MEASUREMENT
-            return DatedState(
+        self._attr_historical_states = [
+            DatedState(
                 state=state,
                 when=dt,
             )
-
-            # Use with SensorStateClass.TOTAL (or TOTAL_INCREASING?)
-            # return DatedState(
-            #     state=state,
-            #     when=dt + timedelta(hours=1),
-            #     attributes=dict(last_reset=dt),
-            # )
-
-        self._attr_historical_states = [
-            dated_state_for_api_data_point(dp) for dp in self.api.fetch()
+            for dt, state in self.api.fetch()
         ]
 
 
