@@ -52,8 +52,6 @@ PLATFORM = "sensor"
 
 
 class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
-    DELORIAN_ENTITY_NAME = "Delorian sensor"
-
     def __init__(self, *args, **kwargs):
         self._attr_has_entity_name = True
         self._attr_name = NAME
@@ -62,7 +60,7 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         self._attr_entity_id = NAME
 
         self._attr_device_class = SensorDeviceClass.ENERGY
-        self._attr_state_class = SensorStateClass.MEASUREMENT
+        # self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_native_unit_of_measurement = ENERGY_KILO_WATT_HOUR
         self._attr_entity_registry_enabled_default = True
         self._attr_state = None
