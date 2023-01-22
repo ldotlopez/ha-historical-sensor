@@ -5,7 +5,7 @@
   "documentation": "https://github.com/ldotlopez/ha-historical-sensor",
   "issue_tracker": "https://github.com/ldotlopez/ha-historical-sensor/issues",
   "requirements": [
-    "homeassistant-historical-sensor==0.0.1"
+    "homeassistant-historical-sensor==0.0.2dev0"
   ],
   "after_dependencies": ["recorder"],
   "codeowners": [
