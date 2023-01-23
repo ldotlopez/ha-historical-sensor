@@ -31,7 +31,9 @@ from homeassistant.components.recorder import db_schema as rec_db_schema
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
 from homeassistant.components.recorder.statistics import (
     async_add_external_statistics,
+    async_import_statistics,
     split_statistic_id,
+    valid_statistic_id,
 )
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -42,6 +44,7 @@ from sqlalchemy import not_, or_
 from .patches import _build_attributes, _stringify_state
 
 _LOGGER = logging.getLogger(__name__)
+RECORDER_SOURCE = "recorder"
 
 
 @dataclass
@@ -74,21 +77,28 @@ class HistoricalSensor(SensorEntity):
         super().__init__(*args, **kwargs)
         self._attr_historical_states: List[DatedState] = []  # type: ignore[annotation-unchecked]
 
-    def get_statatistics_metadata(self) -> StatisticMetaData:
-        # _, metadata = (
-        #     await self._get_recorder_instance().async_add_executor_job(
-        #         functools.partial(
-        #             get_metadata, self.hass, statistic_ids=[self.entity_id]
-        #         )
-        #     )
-        # )[self.entity_id]
+    def get_statatistics_metadata(self, as_external: bool = False) -> StatisticMetaData:
+        if not as_external and (
+            not hasattr(self, "device_class") or not hasattr(self, "state_class")
+        ):
+            _LOGGER.debug(
+                "native statistics require a valid device_class and "
+                + "state_class attributes"
+            )
+            raise ValueError(self)
 
-        statistic_id = self.entity_id.replace(".", ":")
+        if as_external:
+            statistic_id = statistic_id = self.entity_id.replace(".", ":")
+            source = split_statistic_id(statistic_id)[0]
+        else:
+            statistic_id = self.entity_id
+            source = RECORDER_SOURCE
+
         metadata = StatisticMetaData(
             has_mean=False,
             has_sum=True,
             name=f"{self.name} statistics",
-            source=split_statistic_id(statistic_id)[0],
+            source=source,
             statistic_id=statistic_id,
             unit_of_measurement=self.unit_of_measurement,
         )
@@ -200,25 +210,17 @@ class HistoricalSensor(SensorEntity):
         return recorder.get_instance(self.hass)
 
     def _save_states_into_statistics(self, dated_states: List[DatedState]):
-        # existing_stats = await self._get_recorder_instance().async_add_executor_job(
-        #     get_last_statistics,
-        #     self.hass,
-        #     1,
-        #     metadata["statistic_id"],
-        #     True,
-        #     set("sum"),
-        # )
+        statistics_meta = self.get_statatistics_metadata()
+        is_external = valid_statistic_id(statistics_meta["statistic_id"])
 
-        # if existing_stats:
-        #     dated_states = [
-        #         x
-        #         for x in dated_states
-        #         if x.when >= existing_stats[metadata["statistic_id"]][0]["end"]
-        #     ]
+        if is_external:
+            fn = async_add_external_statistics
+        else:
+            fn = async_import_statistics
 
-        async_add_external_statistics(
+        fn(
             self.hass,
-            self.get_statatistics_metadata(),
+            statistics_meta,
             list(self.calculate_statistic_data(dated_states)),
         )
 

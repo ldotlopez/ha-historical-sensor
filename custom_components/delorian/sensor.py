@@ -63,14 +63,9 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         self._attr_state = None
 
         # Simulate energy consumption source
-        self._attr_device_class = SensorDeviceClass.ENERGY
         self._attr_native_unit_of_measurement = ENERGY_KILO_WATT_HOUR
-
-        # Without state-class attr HomeAssistant will not show this sensor as
-        # source for energy stats leaving generated statistics as the only
-        # source.
-
-        # self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_device_class = SensorDeviceClass.ENERGY
+        self._attr_state_class = SensorStateClass.MEASUREMENT
 
         self.api = API()
 

@@ -36,6 +36,12 @@ Q. Something else?
 
 A. Historical sensors can't provide the current state, Home Assistant will show "undefined" state forever, it's OK and intentional.
 
+
+### External vs. internal statistics
+
+### Importing CSV files
+
+
 ## Licenses
 
   - Logo by Danny Allen (Public domain license)
