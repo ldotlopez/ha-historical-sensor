@@ -27,8 +27,11 @@
 # https://github.com/home-assistant/core/blob/dev/homeassistant/components/sensor/__init__.py
 
 
-from typing import Optional
+from datetime import timedelta
+from typing import List, Optional
 
+from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
+from homeassistant.components.recorder.statistics import get_last_statistics
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -77,6 +80,62 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
             )
             for dt, state in self.api.fetch()
         ]
+
+    def get_statatistics_metadata(self) -> StatisticMetaData:
+        meta = super().get_statatistics_metadata()
+        meta["has_sum"] = True
+        meta["has_mean"] = True
+
+        return meta
+
+    async def async_calculate_statistic_data(
+        self, dated_states: List[DatedState]
+    ) -> List[StatisticData]:
+        metadata = self.get_statatistics_metadata()
+
+        res = await self._get_recorder_instance().async_add_executor_job(
+            get_last_statistics,
+            self.hass,
+            1,
+            metadata["statistic_id"],
+            True,
+            set(["last_reset", "max", "mean", "min", "state", "sum"]),
+        )
+        if res:
+            last_stat = res[metadata["statistic_id"]][0]
+            # last_stat sample
+            # {
+            #     "end": datetime.datetime(
+            #         2023, 1, 28, 0, 0, tzinfo=datetime.timezone.utc
+            #     ),
+            #     "last_reset": None,
+            #     "max": None,
+            #     "mean": None,
+            #     "min": None,
+            #     "start": datetime.datetime(
+            #         2023, 1, 27, 23, 0, tzinfo=datetime.timezone.utc
+            #     ),
+            #     "state": 0.29,
+            #     "sum": 1095.3900000000003,
+            # }
+
+            accumulated = last_stat["sum"] or 0
+            dated_states = [x for x in dated_states if x.when >= last_stat["end"]]
+
+        else:
+            accumulated = 0
+
+        def calculate_statistics_from_accumulated(accumulated):
+            for x in dated_states:
+                accumulated = accumulated + x.state
+                yield StatisticData(
+                    start=x.when - timedelta(hours=1),
+                    state=x.state,
+                    mean=x.state,
+                    sum=accumulated,
+                )
+
+        return list(calculate_statistics_from_accumulated(accumulated))
 
 
 async def async_setup_entry(

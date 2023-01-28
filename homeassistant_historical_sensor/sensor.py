@@ -18,11 +18,12 @@
 # USA.
 
 
+import abc
 import logging
 from abc import abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, List
 
 import sqlalchemy.exc
 import sqlalchemy.orm
@@ -77,27 +78,22 @@ class HistoricalSensor(SensorEntity):
         super().__init__(*args, **kwargs)
         self._attr_historical_states: List[DatedState] = []  # type: ignore[annotation-unchecked]
 
-    def get_statatistics_metadata(self, as_external: bool = False) -> StatisticMetaData:
-        if not as_external and (
-            not hasattr(self, "device_class") or not hasattr(self, "state_class")
-        ):
-            _LOGGER.debug(
-                "native statistics require a valid device_class and "
-                + "state_class attributes"
-            )
-            raise ValueError(self)
+    def get_statatistics_metadata(self) -> StatisticMetaData:
+        as_native = getattr(self, "device_class", None) and getattr(
+            self, "state_class", None
+        )
 
-        if as_external:
-            statistic_id = statistic_id = self.entity_id.replace(".", ":")
-            source = split_statistic_id(statistic_id)[0]
-        else:
+        if as_native:
             statistic_id = self.entity_id
             source = RECORDER_SOURCE
+        else:
+            statistic_id = statistic_id = self.entity_id.replace(".", ":")
+            source = split_statistic_id(statistic_id)[0]
 
         metadata = StatisticMetaData(
             has_mean=False,
-            has_sum=True,
-            name=f"{self.name} statistics",
+            has_sum=False,
+            name=f"{self.name} Statistics",
             source=source,
             statistic_id=statistic_id,
             unit_of_measurement=self.unit_of_measurement,
@@ -105,26 +101,11 @@ class HistoricalSensor(SensorEntity):
 
         return metadata
 
-    def calculate_statistic_data(
-        self, dated_states: Iterable[DatedState]
+    @abc.abstractmethod
+    async def async_calculate_statistic_data(
+        self, dated_states: List[DatedState]
     ) -> List[StatisticData]:
-        def g():
-            acc = 0
-            for x in dated_states:
-                acc = acc + x.state
-                yield StatisticData(
-                    start=x.when,
-                    state=x.state,
-                    sum=acc,
-                )
-
-        return list(g())
-
-    async def async_added_to_hass(self) -> None:
-        if self.should_poll:
-            raise Exception("poll model is not supported")
-
-        await super().async_added_to_hass()
+        raise NotImplementedError()
 
     @property
     def should_poll(self):
@@ -169,7 +150,7 @@ class HistoricalSensor(SensorEntity):
         """
         raise NotImplementedError()
 
-    def async_write_ha_historical_states(self):
+    async def async_write_ha_historical_states(self):
         """async_write_ha_historical_states()
 
         This method writes `self.historical_states` into database
@@ -202,14 +183,12 @@ class HistoricalSensor(SensorEntity):
         self._get_recorder_instance().async_add_executor_job(
             self._save_states_into_recorder, dated_states
         )
-        self.hass.async_add_executor_job(
-            self._save_states_into_statistics, dated_states
-        )
+        await self._async_save_states_into_statistics(dated_states)
 
     def _get_recorder_instance(self):
         return recorder.get_instance(self.hass)
 
-    def _save_states_into_statistics(self, dated_states: List[DatedState]):
+    async def _async_save_states_into_statistics(self, dated_states: List[DatedState]):
         statistics_meta = self.get_statatistics_metadata()
         is_external = valid_statistic_id(statistics_meta["statistic_id"])
 
@@ -218,11 +197,12 @@ class HistoricalSensor(SensorEntity):
         else:
             fn = async_import_statistics
 
-        fn(
-            self.hass,
-            statistics_meta,
-            list(self.calculate_statistic_data(dated_states)),
+        statistics_data = await self.async_calculate_statistic_data(dated_states)
+        _LOGGER.debug(
+            f"{self.entity_id}: collected {len(statistics_data)} statistics points"
         )
+
+        fn(self.hass, statistics_meta, statistics_data)
 
     def _save_states_into_recorder(self, dated_states: List[DatedState]):
         #
@@ -427,4 +407,4 @@ class PollUpdateMixin(HistoricalSensor):
 
     async def _async_historical_handle_update(self) -> None:
         await self.async_update_historical()
-        self.async_write_ha_historical_states()
+        await self.async_write_ha_historical_states()
