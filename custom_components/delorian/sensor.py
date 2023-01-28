@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (C) 2021-2022 Luis López <luis@cuarentaydos.com>
+# Copyright (C) 2021-2023 Luis López <luis@cuarentaydos.com>
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -27,7 +27,9 @@
 # https://github.com/home-assistant/core/blob/dev/homeassistant/components/sensor/__init__.py
 
 
-from datetime import timedelta
+import itertools
+import statistics
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
@@ -47,7 +49,6 @@ from homeassistant_historical_sensor import (
     HistoricalSensor,
     PollUpdateMixin,
 )
-
 from .api import API
 from .const import DOMAIN, NAME
 
@@ -78,7 +79,9 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
                 state=state,
                 when=dt,
             )
-            for dt, state in self.api.fetch()
+            for dt, state in self.api.fetch(
+                start=datetime.now() - timedelta(days=3), step=timedelta(minutes=15)
+            )
         ]
 
     def get_statatistics_metadata(self) -> StatisticMetaData:
@@ -126,14 +129,43 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
             accumulated = 0
 
         def calculate_statistics_from_accumulated(accumulated):
-            for x in dated_states:
-                accumulated = accumulated + x.state
+            for key, collection in itertools.groupby(
+                dated_states,
+                key=lambda x: datetime(
+                    year=x.when.year,
+                    month=x.when.month,
+                    day=x.when.day,
+                    hour=x.when.hour,
+                ),
+            ):
+                collection = list(collection)
+                mean = statistics.mean([x.state for x in collection])
+                partial_sum = sum([x.state for x in collection])
+                accumulated = accumulated + partial_sum
+
+                dt0 = collection[0].when
+                basedt = datetime(
+                    year=dt0.year,
+                    month=dt0.month,
+                    day=dt0.day,
+                    hour=dt0.hour,
+                    tzinfo=dt0.tzinfo,
+                ) - timedelta(hours=1)
                 yield StatisticData(
-                    start=x.when - timedelta(hours=1),
-                    state=x.state,
-                    mean=x.state,
+                    start=basedt,
+                    state=partial_sum,
+                    mean=mean,
                     sum=accumulated,
                 )
+
+            # for x in dated_states:
+            #     accumulated = accumulated + x.state
+            #     yield StatisticData(
+            #         start=x.when - timedelta(hours=1),
+            #         state=x.state,
+            #         mean=x.state,
+            #         sum=accumulated,
+            #     )
 
         return list(calculate_statistics_from_accumulated(accumulated))
 
