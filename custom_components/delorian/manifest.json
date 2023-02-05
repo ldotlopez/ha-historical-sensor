@@ -1,11 +1,9 @@
 {
   "domain": "delorian",
   "name": "Delorian - Testing integration for historical sensors",
+  "after_dependencies": ["recorder"],
   "codeowners": [
     "@ldotlopez"
-  ],
-  "dependencies": [
-    "recorder"
   ],
   "config_flow": true,
   "documentation": "https://github.com/ldotlopez/ha-historical-sensor",

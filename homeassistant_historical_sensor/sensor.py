@@ -92,7 +92,7 @@ class HistoricalSensor(SensorEntity):
     def state(self):
         # Better report unavailable than anything
         #
-        # Another aproach is to return data from historical entity, but causes
+        # Another approach is to return data from historical entity, but causes
         # wrong results. Keep here for reference.
         #
         # HistoricalSensors doesn't use poll but state is accessed only once when

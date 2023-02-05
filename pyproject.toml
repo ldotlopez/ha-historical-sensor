@@ -40,6 +40,14 @@ target-version = ['py311']
 [tool.isort]
 profile = "black"
 
+known_first_party = [
+    "homeassistant",
+    "tests",
+]
+forced_separate = [
+    "tests",
+]
+
 [tool.mypy]
 files = ['homeassistant_historical_sensor']
 
@@ -48,3 +56,31 @@ addopts = "--py311-plus"
 
 [tool.setuptools]
 packages = ["homeassistant_historical_sensor"]
+
+[tool.pylint.MAIN]
+py-version = "3.11"
+ignore = [
+    "tests",
+]
+persistent = false
+
+[tool.pylint.BASIC]
+class-const-naming-style = "any"
+good-names = [
+   "r",
+   "g",
+   "v",
+]
+
+[tool.pylint."MESSAGES CONTROL"]
+disable = [
+    "line-too-long",
+    "too-few-public-methods",
+    "missing-class-docstring",
+    "missing-function-docstring",
+    "missing-module-docstring",
+    "too-many-locals",
+]
+
+[tool.pylint.FORMAT]
+expected-line-ending-format = "LF"
