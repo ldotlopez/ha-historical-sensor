@@ -18,7 +18,17 @@
 # USA.
 
 
+import logging
+
+from homeassistant.const import MAJOR_VERSION, MINOR_VERSION
+
 from .sensor import DatedState, HistoricalSensor, PollUpdateMixin
 
+LOGGER = logging.getLogger(__name__)
+
+if not (MAJOR_VERSION >= 2023 and MINOR_VERSION >= 2):
+    msg = "Required homeassistant version >=2023.2.0"
+    LOGGER.debug(msg)
+    raise SystemError(msg)
 
 __all__ = ["DatedState", "HistoricalSensor", "PollUpdateMixin"]

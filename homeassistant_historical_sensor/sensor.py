@@ -27,13 +27,16 @@ from typing import Any, Dict, List
 import sqlalchemy.exc
 import sqlalchemy.orm
 from homeassistant.components import recorder
-from homeassistant.components.recorder import db_schema as rec_db_schema
+from homeassistant.components.recorder import db_schema as db_schema
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
 from homeassistant.components.recorder.statistics import (
     async_add_external_statistics,
     async_import_statistics,
     split_statistic_id,
     valid_statistic_id,
+    clear_statistics,
+    list_statistic_ids,
+    get_last_statistics,
 )
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -167,9 +170,50 @@ class HistoricalSensor(SensorEntity):
         return recorder.get_instance(self.hass)
 
     async def _async_save_states_into_statistics(self, dated_states: List[DatedState]):
-        statistics_meta = self.get_statatistics_metadata()
-        is_external = valid_statistic_id(statistics_meta["statistic_id"])
+        # def delete_statistics():
+        #     with recorder.util.session_scope(
+        #         session=self._get_recorder_instance().get_session()
+        #     ) as session:
+        #         start_cutoff = dated_states[0].when - timedelta(hours=1)
+        #         end_cutoff = dated_states[-1].when
+        #         qs = (
+        #             session.query(db_schema.Statistics)
+        #             .join(
+        #                 db_schema.StatisticsMeta,
+        #                 db_schema.Statistics.metadata_id == db_schema.StatisticsMeta.id,
+        #                 isouter=True,
+        #             )
+        #             .filter(db_schema.Statistics.start >= start_cutoff)
+        #             .filter(db_schema.Statistics.start < end_cutoff)
+        #         )
+        #         stats = [x.id for x in qs]
 
+        #     clear_statistics(self._get_recorder_instance(), stats)
+        #     _LOGGER.debug(f"Cleared {len(stats)} statistics")
+
+        # await self._get_recorder_instance().async_add_executor_job(delete_statistics)
+
+        statistics_meta = self.get_statatistics_metadata()
+
+        def get_cutoff(*args, **kwargs):
+            res = get_last_statistics(
+                hass=self.hass,
+                number_of_stats=1,
+                statistic_id=statistics_meta["statistic_id"],
+                convert_units=True,
+                types=set(["last_reset", "max", "mean", "min", "state", "sum"]),
+            )
+            try:
+                return res[statistics_meta["statistic_id"]][0]["start"]
+            except (KeyError, IndexError):
+                return None
+
+        cutoff = await self._get_recorder_instance().async_add_executor_job(get_cutoff)
+        if cutoff is not None:
+            cutoff = cutoff + timedelta(hours=1)
+            dated_states = [x for x in dated_states if x.when > cutoff]
+
+        is_external = valid_statistic_id(statistics_meta["statistic_id"])
         if is_external:
             fn = async_add_external_statistics
         else:
@@ -184,14 +228,31 @@ class HistoricalSensor(SensorEntity):
 
     def _save_states_into_recorder(self, dated_states: List[DatedState]):
         #
-        # Cleanup invalid states in database
+        # 2023.2.1 Introduces last_updated_ts, last_changed_ts columns
         #
+
         with recorder.util.session_scope(
             session=self._get_recorder_instance().get_session()
         ) as session:
+            base_qs = session.query(db_schema.States).filter(
+                db_schema.States.entity_id == self.entity_id
+            )
+
+            #
+            # Delete invalid states
+            #
             try:
-                self._delete_invalid_states(session)
+                states = base_qs.filter(
+                    or_(
+                        db_schema.States.state == STATE_UNKNOWN,
+                        db_schema.States.state == STATE_UNAVAILABLE,
+                    )
+                )
+                state_count = states.count()
+                states.delete()
                 session.commit()
+
+                _LOGGER.debug(f"Deleted {state_count} invalid states")
 
             except sqlalchemy.exc.IntegrityError:
                 session.rollback()
@@ -201,143 +262,67 @@ class HistoricalSensor(SensorEntity):
                     + "This is not critical just unsightly for some graphs "
                 )
 
-        #
-        # Write states to recorder
-        #
-        with recorder.util.session_scope(
-            session=self._get_recorder_instance().get_session()
-        ) as session:
+            #
+            # Delete intersecting states
+            #
+            cutoff = dt_util.as_timestamp(dated_states[0].when)
+            intersect_states = base_qs.filter(
+                db_schema.States.last_updated_ts >= cutoff
+            )
+            intersect_count = intersect_states.count()
+            intersect_states.delete()
+            session.commit()
+
+            _LOGGER.debug(
+                f"Deleted {intersect_count} states after {dated_states[0].when}"
+            )
+
             #
             # Check latest state in the database
             #
-            latest_db_state = (
-                session.query(rec_db_schema.States)
-                .filter(rec_db_schema.States.entity_id == self.entity_id)
-                .filter(
-                    not_(
-                        or_(
-                            rec_db_schema.States.state == "unknown",
-                            rec_db_schema.States.state == "unavailable",
-                        )
-                    )
-                )
-                .order_by(rec_db_schema.States.last_updated.desc())
-                .first()
-            )
-            # first_run = latest_db_state is None
-
-            #
-            # Drop historical states older than lastest db state
-            #
-            dated_states = list(sorted(dated_states, key=lambda x: x.when))
-            if latest_db_state:
-                # Fix TZINFO from database
-                cutoff = latest_db_state.last_updated.replace(tzinfo=timezone.utc)
-                _LOGGER.debug(
-                    f"{self.entity_id}: found previous states in db "
-                    + f"(latest is dated at: {cutoff}, value:{latest_db_state.state})"
-                )
-                dated_states = [x for x in dated_states if x.when > cutoff]
-
-            if not dated_states:
-                _LOGGER.debug(f"{self.entity_id}: no new states")
-                return
-
-            _LOGGER.debug(
-                f"{self.entity_id}: {len(dated_states)} states pass the cutoff, "
-                + f"extending from {dated_states[0].when} to {dated_states[-1].when}"
-            )
+            latest_state = base_qs.order_by(
+                db_schema.States.last_updated.desc()
+            ).first()
 
             #
             # Build recorder State, StateAttributes and Event
             #
 
-            db_states: List[rec_db_schema.States] = []
+            db_states: List[db_schema.States] = []
 
             for idx, dt_st in enumerate(dated_states):
-                attrs_as_dict = dict(_build_attributes(self, dt_st.state))
+                attrs_as_dict = _build_attributes(self, dt_st.state)
                 attrs_as_dict.update(dt_st.attributes)
-                attrs_as_str = rec_db_schema.JSON_DUMP(attrs_as_dict)
+                attrs_as_str = db_schema.JSON_DUMP(attrs_as_dict)
 
                 attrs_as_bytes = (
                     b"{}" if dt_st.state is None else attrs_as_str.encode("utf-8")
                 )
 
-                attrs_hash = rec_db_schema.StateAttributes.hash_shared_attrs_bytes(
+                attrs_hash = db_schema.StateAttributes.hash_shared_attrs_bytes(
                     attrs_as_bytes
                 )
 
-                state_attributes = rec_db_schema.StateAttributes(
+                state_attributes = db_schema.StateAttributes(
                     hash=attrs_hash, shared_attrs=attrs_as_str
                 )
 
-                state = rec_db_schema.States(
+                when_as_ts = dt_util.as_timestamp(dt_st.when)
+                state = db_schema.States(
                     entity_id=self.entity_id,
-                    last_changed=dt_st.when,
-                    last_updated=dt_st.when,
-                    old_state=db_states[idx - 1] if idx else latest_db_state,
+                    last_changed_ts=when_as_ts,
+                    last_updated_ts=when_as_ts,
+                    old_state=db_states[idx - 1] if idx else latest_state,
                     state=_stringify_state(self, dt_st.state),
                     state_attributes=state_attributes,
                 )
-                _LOGGER.debug(f" => {state.state} @ {state.last_changed}")
+                _LOGGER.debug(f" => {state.state} @ {dt_st.when}")
                 db_states.append(state)
 
             session.add_all(db_states)
             session.commit()
 
             _LOGGER.debug(f"{self.entity_id}: {len(db_states)} saved into the database")
-
-    def _delete_invalid_states(self, session: sqlalchemy.orm.session.Session):
-        states = (
-            session.query(rec_db_schema.States)
-            .filter(rec_db_schema.States.entity_id == self.entity_id)
-            .filter(
-                or_(
-                    rec_db_schema.States.state == STATE_UNKNOWN,
-                    rec_db_schema.States.state == STATE_UNAVAILABLE,
-                )
-            )
-        )
-        n_states = states.count()
-
-        # Deleting StateAttributes raises IntegrityError :shrug:
-        # states_attrs = session.query(rec_db_schema.StateAttributes).filter(
-        #     rec_db_schema.StateAttributes.attributes_id.in_(
-        #         (x.attributes_id for x in states)
-        #     )
-        # )
-        # states_attrs.delete()
-
-        states.delete()
-
-        if n_states:
-            _LOGGER.debug(f"{self.entity_id}: deleted {n_states} invalid states")
-
-        ##
-        # Strategy: delete orphan StateAttributes
-        # This implementation is broken, we can end deleting states from other
-        # integrations
-        ##
-
-        # attr_ids_from_states = (
-        #     x.attributes_id
-        #     for x in session.query(rec_db_schema.States)
-        # )
-
-        # attrs_ids_from_state_attrs = (
-        #     x.attributes_id
-        #     for x in session.query(rec_db_schema.StateAttributes)
-        # )
-
-        # orphan_attr_ids = set(attrs_ids_from_state_attrs) - set(attr_ids_from_states)
-
-        # session.query(rec_db_schema.StateAttributes).filter(
-        #     rec_db_schema.StateAttributes.attributes_id.in_(orphan_attr_ids)
-        # ).delete()
-
-        ##
-        # End strategy: delete orphan StateAttributes
-        ##
 
     def get_statatistics_metadata(self) -> StatisticMetaData:
         as_native = getattr(self, "device_class", None) and getattr(
