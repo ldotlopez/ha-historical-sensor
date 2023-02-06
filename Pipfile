@@ -6,11 +6,10 @@ name = "pypi"
 [packages]
 
 [dev-packages]
-build = "*"
 homeassistant = "*"
 sqlalchemy = "*"
 ipdb = "*"
 ipython = "*"
 
 [requires]
-python_version = "3.10"
+python_version = "3"
