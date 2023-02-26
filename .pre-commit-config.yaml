@@ -122,7 +122,7 @@ repos:
     hooks:
       - id: pylint
         additional_dependencies:
-          - homeassistant-stubs>=2023.1.7
+          - homeassistant-stubs>=2023.2.0
           - sqlalchemy
           - pyyaml
   - repo: https://github.com/pre-commit/mirrors-mypy
@@ -130,6 +130,6 @@ repos:
     hooks:
       - id: mypy
         additional_dependencies:
-          - homeassistant-stubs>=2023.1.7
+          - homeassistant-stubs>=2023.2.0
           - sqlalchemy
           - pyyaml
