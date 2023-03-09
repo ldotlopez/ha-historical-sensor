@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import math
 import sys
-from typing import Any, Mapping
+from typing import Any, Dict
 
 from homeassistant.config import DATA_CUSTOMIZE
 from homeassistant.const import (
@@ -68,7 +68,7 @@ def _stringify_state(self: Entity, state: Any) -> str:
 # https://github.com/home-assistant/core/blob/dev/homeassistant/helpers/entity.py
 
 
-def _build_attributes(self: Entity, state: Any) -> Mapping[str, str]:
+def _build_attributes(self: Entity, state: Any) -> Dict[str, str]:
     attr = self.capability_attributes
     attr = dict(attr) if attr else {}
 
