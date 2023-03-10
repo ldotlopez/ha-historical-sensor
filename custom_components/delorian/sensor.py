@@ -44,11 +44,10 @@ from homeassistant.const import ENERGY_KILO_WATT_HOUR
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import DiscoveryInfoType
-from homeassistant_historical_sensor import (
-    DatedState,
-    HistoricalSensor,
-    PollUpdateMixin,
-)
+from homeassistant.util import dt as dtutil
+from homeassistant_historical_sensor import HistoricalSensor, PollUpdateMixin
+from homeassistant_historical_sensor.sensor import HistoricalState
+
 from .api import API
 from .const import DOMAIN, NAME
 
@@ -74,12 +73,20 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         self.api = API()
 
     async def async_update_historical(self):
+        def timestamp_from_local_dt(dt):
+            if dt.tzinfo is None:
+                dt = dtutil.as_local(dt)
+
+            ts = dtutil.as_timestamp(dt)
+
+            return ts
+
         self._attr_historical_states = [
-            DatedState(
+            HistoricalState(
                 state=state,
-                when=dt,
+                timestamp=timestamp_from_local_dt(dt),
             )
-            for dt, state in self.api.fetch(
+            for (dt, state) in self.api.fetch(
                 start=datetime.now() - timedelta(days=3), step=timedelta(minutes=15)
             )
         ]
@@ -92,7 +99,7 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         return meta
 
     async def async_calculate_statistic_data(
-        self, dated_states: List[DatedState]
+        self, hist_states: List[HistoricalState]
     ) -> List[StatisticData]:
         metadata = self.get_statatistics_metadata()
 
@@ -104,53 +111,39 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
             True,
             set(["last_reset", "max", "mean", "min", "state", "sum"]),
         )
+
         if res:
             last_stat = res[metadata["statistic_id"]][0]
             # last_stat sample
             # {
-            #     "end": datetime.datetime(
-            #         2023, 1, 28, 0, 0, tzinfo=datetime.timezone.utc
-            #     ),
             #     "last_reset": None,
             #     "max": None,
             #     "mean": None,
             #     "min": None,
-            #     "start": datetime.datetime(
-            #         2023, 1, 27, 23, 0, tzinfo=datetime.timezone.utc
-            #     ),
+            #     'start': 1678399200.0,
+            #     'end': 1678402800.0,
             #     "state": 0.29,
             #     "sum": 1095.3900000000003,
             # }
 
             accumulated = last_stat["sum"] or 0
-            dated_states = [x for x in dated_states if x.when >= last_stat["end"]]
+            hist_states = [x for x in hist_states if x.timestamp >= last_stat["end"]]
 
         else:
             accumulated = 0
 
         def calculate_statistics_from_accumulated(accumulated):
-            for key, collection in itertools.groupby(
-                dated_states,
-                key=lambda x: datetime(
-                    year=x.when.year,
-                    month=x.when.month,
-                    day=x.when.day,
-                    hour=x.when.hour,
-                ),
-            ):
+            def hour_for_hist_st(hist_st):
+                dt = dtutil.utc_from_timestamp(hist_st.timestamp)
+                return dt.replace(minute=0, second=0, microsecond=0)
+
+            for dt, collection in itertools.groupby(hist_states, key=hour_for_hist_st):
                 collection = list(collection)
                 mean = statistics.mean([x.state for x in collection])
                 partial_sum = sum([x.state for x in collection])
                 accumulated = accumulated + partial_sum
 
-                dt0 = collection[0].when
-                basedt = datetime(
-                    year=dt0.year,
-                    month=dt0.month,
-                    day=dt0.day,
-                    hour=dt0.hour,
-                    tzinfo=dt0.tzinfo,
-                ) - timedelta(hours=1)
+                basedt = dt - timedelta(hours=1)
                 yield StatisticData(
                     start=basedt,
                     state=partial_sum,

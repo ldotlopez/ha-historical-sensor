@@ -51,9 +51,9 @@ RECORDER_SOURCE = "recorder"
 
 
 @dataclass
-class DatedState:
+class HistoricalState:
     state: Any
-    when: datetime
+    timestamp: float
     attributes: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -78,7 +78,7 @@ class HistoricalSensor(SensorEntity):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._attr_historical_states: List[DatedState] = []  # type: ignore[annotation-unchecked]
+        self._attr_historical_states: List[HistoricalState] = []  # type: ignore[annotation-unchecked]
 
     @property
     def should_poll(self):
@@ -110,7 +110,7 @@ class HistoricalSensor(SensorEntity):
         return []
 
     @property
-    def statistics_enabled(self):
+    def statistics_enabled(self) -> bool:
         if hasattr(self, "_attr_statistics_enabled"):
             return self._attr_statistics_enabled
 
@@ -133,22 +133,9 @@ class HistoricalSensor(SensorEntity):
         This method writes `self.historical_states` into database
         """
 
-        def _normalize_dated_state_when(st):
-            if not isinstance(st, DatedState):
-                return None
-
-            if st.when.tzinfo is None:
-                st.when = dt_util.as_local(st.when)
-
-            if st.when.tzinfo is not timezone.utc:
-                st.when = dt_util.as_utc(st.when)
-
-            return st
-
         dated_states = self.historical_states
-        dated_states = (_normalize_dated_state_when(x) for x in dated_states)
         dated_states = (x for x in dated_states if x is not None)
-        dated_states = list(sorted(dated_states, key=lambda x: x.when))
+        dated_states = list(sorted(dated_states, key=lambda x: x.timestamp))
 
         _LOGGER.debug(
             f"{self.entity_id}: {len(dated_states)} historical states available"
@@ -169,7 +156,9 @@ class HistoricalSensor(SensorEntity):
     def _get_recorder_instance(self):
         return recorder.get_instance(self.hass)
 
-    async def _async_save_states_into_statistics(self, dated_states: List[DatedState]):
+    async def _async_save_states_into_statistics(
+        self, dated_states: List[HistoricalState]
+    ):
         # def delete_statistics():
         #     with recorder.util.session_scope(
         #         session=self._get_recorder_instance().get_session()
@@ -209,9 +198,10 @@ class HistoricalSensor(SensorEntity):
                 return None
 
         cutoff = await self._get_recorder_instance().async_add_executor_job(get_cutoff)
+
         if cutoff is not None:
-            cutoff = cutoff + timedelta(hours=1)
-            dated_states = [x for x in dated_states if x.when > cutoff]
+            cutoff = cutoff + 60 * 60  # one hour
+            dated_states = [x for x in dated_states if x.timestamp > cutoff]
 
         is_external = valid_statistic_id(statistics_meta["statistic_id"])
         if is_external:
@@ -226,7 +216,7 @@ class HistoricalSensor(SensorEntity):
             f"{self.entity_id}: collected {len(statistics_data)} statistic points"
         )
 
-    def _save_states_into_recorder(self, dated_states: List[DatedState]):
+    def _save_states_into_recorder(self, hist_states: List[HistoricalState]):
         #
         # 2023.2.1 Introduces last_updated_ts, last_changed_ts columns
         #
@@ -314,15 +304,15 @@ class HistoricalSensor(SensorEntity):
             #
 
             if latest_state:
-                cutoff = dt_util.utc_from_timestamp(latest_state.last_updated_ts)
+                cutoff = latest_state.last_updated_ts or 0
                 _LOGGER.debug(
                     f"{self.entity_id}: lastest state found: {latest_state.state} @ {cutoff}"
                 )
-                dated_states = [x for x in dated_states if x.when > cutoff]
+                hist_states = [x for x in hist_states if x.timestamp > cutoff]
             else:
                 _LOGGER.debug(f"{self.entity_id}: no previous states found")
 
-            if not dated_states:
+            if not hist_states:
                 _LOGGER.debug(f"{self.entity_id}: no new states from API")
                 return
 
@@ -331,13 +321,13 @@ class HistoricalSensor(SensorEntity):
             #
 
             db_states: List[db_schema.States] = []
-            for idx, dt_st in enumerate(dated_states):
-                attrs_as_dict = _build_attributes(self, dt_st.state)
-                attrs_as_dict.update(dt_st.attributes)
+            for idx, hist_state in enumerate(hist_states):
+                attrs_as_dict = _build_attributes(self, hist_state.state)
+                attrs_as_dict.update(hist_state.attributes)
                 attrs_as_str = db_schema.JSON_DUMP(attrs_as_dict)
 
                 attrs_as_bytes = (
-                    b"{}" if dt_st.state is None else attrs_as_str.encode("utf-8")
+                    b"{}" if hist_state.state is None else attrs_as_str.encode("utf-8")
                 )
 
                 attrs_hash = db_schema.StateAttributes.hash_shared_attrs_bytes(
@@ -348,16 +338,18 @@ class HistoricalSensor(SensorEntity):
                     hash=attrs_hash, shared_attrs=attrs_as_str
                 )
 
-                when_as_ts = dt_util.as_timestamp(dt_st.when)
                 state = db_schema.States(
                     entity_id=self.entity_id,
-                    last_changed_ts=when_as_ts,
-                    last_updated_ts=when_as_ts,
+                    last_changed_ts=hist_state.timestamp,
+                    last_updated_ts=hist_state.timestamp,
                     old_state=db_states[idx - 1] if idx else latest_state,
-                    state=_stringify_state(self, dt_st.state),
+                    state=_stringify_state(self, hist_state.state),
                     state_attributes=state_attributes,
                 )
-                _LOGGER.debug(f" => {state.state} @ {dt_st.when}")
+
+                _LOGGER.debug(
+                    f" => {state.state} @ {local_dt_from_timestamp(hist_state.timestamp)}"
+                )
                 db_states.append(state)
 
             session.add_all(db_states)
@@ -389,7 +381,7 @@ class HistoricalSensor(SensorEntity):
         return metadata
 
     async def async_calculate_statistic_data(
-        self, dated_states: List[DatedState]
+        self, dated_states: List[HistoricalState]
     ) -> List[StatisticData]:
         """Calculate statistics data from dated states
 
@@ -444,3 +436,7 @@ class PollUpdateMixin(HistoricalSensor):
     async def _async_historical_handle_update(self) -> None:
         await self.async_update_historical()
         await self.async_write_ha_historical_states()
+
+
+def local_dt_from_timestamp(ts: float):
+    return dt_util.as_local(dt_util.utc_from_timestamp(ts))

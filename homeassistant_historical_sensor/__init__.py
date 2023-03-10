@@ -22,7 +22,7 @@ import logging
 
 from homeassistant.const import MAJOR_VERSION, MINOR_VERSION
 
-from .sensor import DatedState, HistoricalSensor, PollUpdateMixin
+from .sensor import HistoricalSensor, HistoricalState, PollUpdateMixin
 
 LOGGER = logging.getLogger(__name__)
 
@@ -31,4 +31,4 @@ if not (MAJOR_VERSION >= 2023 and MINOR_VERSION >= 2):
     LOGGER.debug(msg)
     raise SystemError(msg)
 
-__all__ = ["DatedState", "HistoricalSensor", "PollUpdateMixin"]
+__all__ = ["HistoricalSensor", "HistoricalState", "PollUpdateMixin"]
