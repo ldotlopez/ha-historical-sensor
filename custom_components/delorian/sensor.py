@@ -18,17 +18,9 @@
 # USA.
 
 
-# TODO
-# Maybe we need to mark some function as callback but I'm not sure whose.
-# from homeassistant.core import callback
-
-
-# Check sensor.SensorEntityDescription
-# https://github.com/home-assistant/core/blob/dev/homeassistant/components/sensor/__init__.py
-
 import itertools
 import statistics
-from datetime import date, datetime, time, timedelta
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from homeassistant.components.recorder.models import (
@@ -51,10 +43,10 @@ from homeassistant_historical_sensor import (
     PollUpdateMixin,
     HistoricalState,
 )
-from homeassistant_historical_sensor.util import get_last_statistics_wrapper
 
 from .api import API
 from .const import DOMAIN, NAME
+
 
 PLATFORM = "sensor"
 

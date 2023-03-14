@@ -18,26 +18,17 @@
 # USA.
 
 
-import itertools
 import logging
 from abc import abstractmethod
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import timedelta
+from typing import List, Optional
 
 import sqlalchemy.exc
 import sqlalchemy.orm
 from homeassistant.components import recorder
 from homeassistant.components.recorder import db_schema as db_schema
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
-from homeassistant.components.recorder.statistics import (
-    async_add_external_statistics,
-    async_import_statistics,
-    clear_statistics,
-    list_statistic_ids,
-    split_statistic_id,
-    valid_statistic_id,
-)
+from homeassistant.components.recorder.statistics import async_add_external_statistics
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers.event import async_track_time_interval
