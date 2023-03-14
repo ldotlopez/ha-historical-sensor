@@ -26,18 +26,19 @@
 # Check sensor.SensorEntityDescription
 # https://github.com/home-assistant/core/blob/dev/homeassistant/components/sensor/__init__.py
 
-
 import itertools
 import statistics
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import List, Optional
 
-from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
-from homeassistant.components.recorder.statistics import get_last_statistics
+from homeassistant.components.recorder.models import (
+    StatisticData,
+    StatisticMetaData,
+)
+
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
-    SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ENERGY_KILO_WATT_HOUR
@@ -45,8 +46,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import DiscoveryInfoType
 from homeassistant.util import dt as dtutil
-from homeassistant_historical_sensor import HistoricalSensor, PollUpdateMixin
-from homeassistant_historical_sensor.sensor import HistoricalState
+from homeassistant_historical_sensor import (
+    HistoricalSensor,
+    PollUpdateMixin,
+    HistoricalState,
+)
+from homeassistant_historical_sensor.util import get_last_statistics_wrapper
 
 from .api import API
 from .const import DOMAIN, NAME
@@ -65,26 +70,23 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         self._attr_entity_registry_enabled_default = True
         self._attr_state = None
 
-        # Simulate energy consumption source
+        # Define whatever you are
         self._attr_native_unit_of_measurement = ENERGY_KILO_WATT_HOUR
         self._attr_device_class = SensorDeviceClass.ENERGY
-        self._attr_state_class = SensorStateClass.MEASUREMENT
+
+        # We DONT opt-in for statistics. Why?
+        # Those stats are generated from a real sensor, this sensor but…
+        # we don't want that hass try to do anything with those statistics
+        # because we handled generation and importing
+        # self._attr_state_class = SensorStateClass.MEASUREMENT
 
         self.api = API()
 
     async def async_update_historical(self):
-        def timestamp_from_local_dt(dt):
-            if dt.tzinfo is None:
-                dt = dtutil.as_local(dt)
-
-            ts = dtutil.as_timestamp(dt)
-
-            return ts
-
         self._attr_historical_states = [
             HistoricalState(
                 state=state,
-                timestamp=timestamp_from_local_dt(dt),
+                dt=dtutil.as_local(dt),  # Add tzinfo, required by HistoricalSensor
             )
             for (dt, state) in self.api.fetch(
                 start=datetime.now() - timedelta(days=3), step=timedelta(minutes=15)
@@ -92,6 +94,11 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         ]
 
     def get_statatistics_metadata(self) -> StatisticMetaData:
+        #
+        # Add sum and mean to base statistics metadata
+        # Important: HistoricalSensor.get_statatistics_metadata returns an
+        # external source.
+        #
         meta = super().get_statatistics_metadata()
         meta["has_sum"] = True
         meta["has_mean"] = True
@@ -99,68 +106,43 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         return meta
 
     async def async_calculate_statistic_data(
-        self, hist_states: List[HistoricalState]
+        self, hist_states: List[HistoricalState], *, latest: Optional[dict]
     ) -> List[StatisticData]:
-        metadata = self.get_statatistics_metadata()
+        #
+        # Group historical states by hour
+        # Calculate sum, mean, etc...
+        #
 
-        res = await self._get_recorder_instance().async_add_executor_job(
-            get_last_statistics,
-            self.hass,
-            1,
-            metadata["statistic_id"],
-            True,
-            set(["last_reset", "max", "mean", "min", "state", "sum"]),
-        )
+        accumulated = latest["sum"] if latest else 0
 
-        if res:
-            last_stat = res[metadata["statistic_id"]][0]
-            # last_stat sample
-            # {
-            #     "last_reset": None,
-            #     "max": None,
-            #     "mean": None,
-            #     "min": None,
-            #     'start': 1678399200.0,
-            #     'end': 1678402800.0,
-            #     "state": 0.29,
-            #     "sum": 1095.3900000000003,
-            # }
-
-            accumulated = last_stat["sum"] or 0
-            hist_states = [x for x in hist_states if x.timestamp >= last_stat["end"]]
-
-        else:
-            accumulated = 0
-
-        def calculate_statistics_from_accumulated(accumulated):
-            def hour_for_hist_st(hist_st):
-                dt = dtutil.utc_from_timestamp(hist_st.timestamp)
+        def hour_block_for_hist_state(hist_state: HistoricalState) -> datetime:
+            # XX:00:00 states belongs to previous hour block
+            if hist_state.dt.minute == 0 and hist_state.dt.second == 0:
+                dt = hist_state.dt - timedelta(hours=1)
                 return dt.replace(minute=0, second=0, microsecond=0)
 
-            for dt, collection in itertools.groupby(hist_states, key=hour_for_hist_st):
-                collection = list(collection)
-                mean = statistics.mean([x.state for x in collection])
-                partial_sum = sum([x.state for x in collection])
-                accumulated = accumulated + partial_sum
+            else:
+                return hist_state.dt.replace(minute=0, second=0, microsecond=0)
 
-                basedt = dt - timedelta(hours=1)
-                yield StatisticData(
-                    start=basedt,
+        ret = []
+        for dt, collection_it in itertools.groupby(
+            hist_states, key=hour_block_for_hist_state
+        ):
+            collection = list(collection_it)
+            mean = statistics.mean([x.state for x in collection])
+            partial_sum = sum([x.state for x in collection])
+            accumulated = accumulated + partial_sum
+
+            ret.append(
+                StatisticData(
+                    start=dt,
                     state=partial_sum,
                     mean=mean,
                     sum=accumulated,
                 )
+            )
 
-            # for x in dated_states:
-            #     accumulated = accumulated + x.state
-            #     yield StatisticData(
-            #         start=x.when - timedelta(hours=1),
-            #         state=x.state,
-            #         mean=x.state,
-            #         sum=accumulated,
-            #     )
-
-        return list(calculate_statistics_from_accumulated(accumulated))
+        return ret
 
 
 async def async_setup_entry(

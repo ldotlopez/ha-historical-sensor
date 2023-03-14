@@ -22,7 +22,8 @@ import logging
 
 from homeassistant.const import MAJOR_VERSION, MINOR_VERSION
 
-from .sensor import HistoricalSensor, HistoricalState, PollUpdateMixin
+from .sensor import HistoricalSensor, PollUpdateMixin
+from .state import HistoricalState
 
 LOGGER = logging.getLogger(__name__)
 

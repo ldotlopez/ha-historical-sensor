@@ -18,11 +18,12 @@
 # USA.
 
 
+import itertools
 import logging
 from abc import abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
 
 import sqlalchemy.exc
 import sqlalchemy.orm
@@ -32,29 +33,22 @@ from homeassistant.components.recorder.models import StatisticData, StatisticMet
 from homeassistant.components.recorder.statistics import (
     async_add_external_statistics,
     async_import_statistics,
-    split_statistic_id,
-    valid_statistic_id,
     clear_statistics,
     list_statistic_ids,
-    get_last_statistics,
+    split_statistic_id,
+    valid_statistic_id,
 )
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.util import dt as dt_util
+from homeassistant.util import dt as dtutil
 from sqlalchemy import not_, or_
 
 from .patches import _build_attributes, _stringify_state
+from .state import HistoricalState
+from .util import get_last_statistics_wrapper
 
 _LOGGER = logging.getLogger(__name__)
-RECORDER_SOURCE = "recorder"
-
-
-@dataclass
-class HistoricalState:
-    state: Any
-    timestamp: float
-    attributes: Dict[str, Any] = field(default_factory=dict)
 
 
 # You must know:
@@ -133,23 +127,23 @@ class HistoricalSensor(SensorEntity):
         This method writes `self.historical_states` into database
         """
 
-        dated_states = self.historical_states
-        dated_states = (x for x in dated_states if x is not None)
-        dated_states = list(sorted(dated_states, key=lambda x: x.timestamp))
+        hist_states = self.historical_states
+        hist_states = (x for x in hist_states if x is not None)
+        hist_states = list(sorted(hist_states, key=lambda x: x.dt))
 
         _LOGGER.debug(
-            f"{self.entity_id}: {len(dated_states)} historical states available"
+            f"{self.entity_id}: {len(hist_states)} historical states available"
         )
 
-        if not dated_states:
+        if not hist_states:
             return
 
-        self._get_recorder_instance().async_add_executor_job(
-            self._save_states_into_recorder, dated_states
+        await self._get_recorder_instance().async_add_executor_job(
+            self._save_states_into_recorder, hist_states
         )
 
         if self.statistics_enabled:
-            await self._async_save_states_into_statistics(dated_states)
+            await self._async_save_states_into_statistics(hist_states)
         else:
             _LOGGER.debug(f"{self.entity_id}: statistics are not enabled")
 
@@ -157,14 +151,16 @@ class HistoricalSensor(SensorEntity):
         return recorder.get_instance(self.hass)
 
     async def _async_save_states_into_statistics(
-        self, dated_states: List[HistoricalState]
+        self, hist_states: List[HistoricalState]
     ):
+        # Don't do this
+        #
         # def delete_statistics():
         #     with recorder.util.session_scope(
         #         session=self._get_recorder_instance().get_session()
         #     ) as session:
-        #         start_cutoff = dated_states[0].when - timedelta(hours=1)
-        #         end_cutoff = dated_states[-1].when
+        #         start_cutoff = hist_states[0].when - timedelta(hours=1)
+        #         end_cutoff = hist_states[-1].when
         #         qs = (
         #             session.query(db_schema.Statistics)
         #             .join(
@@ -184,34 +180,29 @@ class HistoricalSensor(SensorEntity):
 
         statistics_meta = self.get_statatistics_metadata()
 
-        def get_cutoff(*args, **kwargs):
-            res = get_last_statistics(
-                hass=self.hass,
-                number_of_stats=1,
-                statistic_id=statistics_meta["statistic_id"],
-                convert_units=True,
-                types=set(["last_reset", "max", "mean", "min", "state", "sum"]),
-            )
-            try:
-                return res[statistics_meta["statistic_id"]][0]["start"]
-            except (KeyError, IndexError):
-                return None
+        latest = await get_last_statistics_wrapper(
+            self.hass, statistics_meta["statistic_id"]
+        )
 
-        cutoff = await self._get_recorder_instance().async_add_executor_job(get_cutoff)
+        if latest is not None:
+            cutoff = dtutil.utc_from_timestamp(latest["start"]) + timedelta(hours=1)
+            hist_states = [x for x in hist_states if x.dt > cutoff]
 
-        if cutoff is not None:
-            cutoff = cutoff + 60 * 60  # one hour
-            dated_states = [x for x in dated_states if x.timestamp > cutoff]
+        #
+        # Calculate stats
+        #
+        statistics_data = await self.async_calculate_statistic_data(
+            hist_states, latest=latest
+        )
 
-        is_external = valid_statistic_id(statistics_meta["statistic_id"])
-        if is_external:
-            fn = async_add_external_statistics
-        else:
-            fn = async_import_statistics
+        for stat in statistics_data:
+            tmp = dict(stat)
+            start_dt = dtutil.as_local(tmp.pop("start"))
+            _LOGGER.debug(f"new statistic: start={start_dt}, value={tmp!r}")
 
-        statistics_data = await self.async_calculate_statistic_data(dated_states)
+        # Note: Import statistics as external
+        async_add_external_statistics(self.hass, statistics_meta, statistics_data)
 
-        fn(self.hass, statistics_meta, statistics_data)
         _LOGGER.debug(
             f"{self.entity_id}: collected {len(statistics_data)} statistic points"
         )
@@ -263,7 +254,7 @@ class HistoricalSensor(SensorEntity):
             # It is better to discard the new overlapping states than to
             # delete them from the database.
 
-            # cutoff = dt_util.as_timestamp(dated_states[0].when)
+            # cutoff = dtutil.as_timestamp(hist_states[0].when)
             # intersect_states = base_qs.filter(
             #     db_schema.States.last_updated_ts >= cutoff
             # )
@@ -272,7 +263,7 @@ class HistoricalSensor(SensorEntity):
             # session.commit()
             #
             # _LOGGER.debug(
-            #     f"Deleted {intersect_count} states after {dated_states[0].when}"
+            #     f"Deleted {intersect_count} states after {hist_states[0].when}"
             # )
 
             #
@@ -302,13 +293,13 @@ class HistoricalSensor(SensorEntity):
             #
             # Drop historical states older than lastest db state
             #
-
             if latest_state:
-                cutoff = latest_state.last_updated_ts or 0
+                cutoff = dtutil.utc_from_timestamp(latest_state.last_updated_ts or 0)
                 _LOGGER.debug(
                     f"{self.entity_id}: lastest state found: {latest_state.state} @ {cutoff}"
                 )
-                hist_states = [x for x in hist_states if x.timestamp > cutoff]
+                hist_states = [x for x in hist_states if x.dt > cutoff]
+
             else:
                 _LOGGER.debug(f"{self.entity_id}: no previous states found")
 
@@ -338,17 +329,18 @@ class HistoricalSensor(SensorEntity):
                     hash=attrs_hash, shared_attrs=attrs_as_str
                 )
 
+                ts = dtutil.as_timestamp(hist_state.dt)
                 state = db_schema.States(
                     entity_id=self.entity_id,
-                    last_changed_ts=hist_state.timestamp,
-                    last_updated_ts=hist_state.timestamp,
+                    last_changed_ts=ts,
+                    last_updated_ts=ts,
                     old_state=db_states[idx - 1] if idx else latest_state,
                     state=_stringify_state(self, hist_state.state),
                     state_attributes=state_attributes,
                 )
 
                 _LOGGER.debug(
-                    f" => {state.state} @ {local_dt_from_timestamp(hist_state.timestamp)}"
+                    f"new state: dt={dtutil.as_local(hist_state.dt)} value={hist_state.state}"
                 )
                 db_states.append(state)
 
@@ -358,16 +350,8 @@ class HistoricalSensor(SensorEntity):
             _LOGGER.debug(f"{self.entity_id}: {len(db_states)} saved into the database")
 
     def get_statatistics_metadata(self) -> StatisticMetaData:
-        as_native = getattr(self, "device_class", None) and getattr(
-            self, "state_class", None
-        )
-
-        if as_native:
-            statistic_id = self.entity_id
-            source = RECORDER_SOURCE
-        else:
-            statistic_id = statistic_id = self.entity_id.replace(".", ":")
-            source = split_statistic_id(statistic_id)[0]
+        statistic_id = statistic_id = self.entity_id.replace(".", ":")
+        source = split_statistic_id(statistic_id)[0]
 
         metadata = StatisticMetaData(
             has_mean=False,
@@ -381,7 +365,7 @@ class HistoricalSensor(SensorEntity):
         return metadata
 
     async def async_calculate_statistic_data(
-        self, dated_states: List[HistoricalState]
+        self, hist_states: List[HistoricalState], *, latest: Optional[dict]
     ) -> List[StatisticData]:
         """Calculate statistics data from dated states
 
@@ -439,4 +423,4 @@ class PollUpdateMixin(HistoricalSensor):
 
 
 def local_dt_from_timestamp(ts: float):
-    return dt_util.as_local(dt_util.utc_from_timestamp(ts))
+    return dtutil.as_local(dtutil.utc_from_timestamp(ts))
