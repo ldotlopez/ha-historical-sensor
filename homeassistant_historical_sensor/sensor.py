@@ -115,6 +115,16 @@ class HistoricalSensor(SensorEntity):
         """
         raise NotImplementedError()
 
+    @abstractmethod
+    async def async_calculate_statistic_data(
+        self, hist_states: List[HistoricalState], *, latest: Optional[dict]
+    ) -> List[StatisticData]:
+        """Calculate statistics data from dated states
+
+        This method should be implemented by sensors
+        """
+        raise NotImplementedError()
+
     async def async_write_ha_historical_states(self):
         """async_write_ha_historical_states()
 
@@ -360,15 +370,6 @@ class HistoricalSensor(SensorEntity):
         )
 
         return metadata
-
-    async def async_calculate_statistic_data(
-        self, hist_states: List[HistoricalState], *, latest: Optional[dict]
-    ) -> List[StatisticData]:
-        """Calculate statistics data from dated states
-
-        This method should be implemented by sensors
-        """
-        raise NotImplementedError()
 
 
 class PollUpdateMixin(HistoricalSensor):
