@@ -21,7 +21,6 @@
 from typing import Any, Optional
 
 from homeassistant import config_entries
-from homeassistant.core import callback  # noqa: F401
 from homeassistant.data_entry_flow import FlowResult
 
 from .const import DOMAIN, NAME

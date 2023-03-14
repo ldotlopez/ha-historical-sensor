@@ -28,7 +28,10 @@ import sqlalchemy.orm
 from homeassistant.components import recorder
 from homeassistant.components.recorder import db_schema as db_schema
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
-from homeassistant.components.recorder.statistics import async_add_external_statistics
+from homeassistant.components.recorder.statistics import (
+    async_add_external_statistics,
+    split_statistic_id,
+)
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers.event import async_track_time_interval
@@ -119,20 +122,24 @@ class HistoricalSensor(SensorEntity):
         """
 
         hist_states = self.historical_states
-        hist_states = (x for x in hist_states if x is not None)
-        hist_states = list(sorted(hist_states, key=lambda x: x.dt))
+        if any([True for x in hist_states if x.dt.tzinfo is None]):
+            _LOGGER.error("historical_states MUST include tzinfo")
+            return
 
+        hist_states = list(sorted(hist_states, key=lambda x: x.dt))
         _LOGGER.debug(
-            f"{self.entity_id}: {len(hist_states)} historical states available"
+            f"{self.entity_id}: {len(hist_states)} historical states collected from sensor"
         )
 
         if not hist_states:
             return
 
+        # Write states
         await self._get_recorder_instance().async_add_executor_job(
             self._save_states_into_recorder, hist_states
         )
 
+        # Write statistics if enabled
         if self.statistics_enabled:
             await self._async_save_states_into_statistics(hist_states)
         else:
@@ -193,7 +200,6 @@ class HistoricalSensor(SensorEntity):
 
         # Note: Import statistics as external
         async_add_external_statistics(self.hass, statistics_meta, statistics_data)
-
         _LOGGER.debug(
             f"{self.entity_id}: collected {len(statistics_data)} statistic points"
         )

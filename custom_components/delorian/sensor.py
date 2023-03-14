@@ -18,6 +18,13 @@
 # USA.
 
 
+#
+# This is an example of historical sensor using the
+# `homeassistant_historical_sensor module` helper.
+#
+# Important methods include comments about code itself and reasons behind them
+#
+
 import itertools
 import statistics
 from datetime import datetime, timedelta
@@ -52,6 +59,15 @@ PLATFORM = "sensor"
 
 
 class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
+    #
+    # Base clases:
+    # - SensorEntity: This is a sensor, obvious
+    # - HistoricalSensor: This sensor implements historical sensor methods
+    # - PollUpdateMixin: Historical sensors disable poll, this mixing
+    #                    reenables poll only for historical states and not for
+    #                    present state
+    #
+
     def __init__(self, *args, **kwargs):
         self._attr_has_entity_name = True
         self._attr_name = NAME
@@ -66,15 +82,22 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         self._attr_native_unit_of_measurement = ENERGY_KILO_WATT_HOUR
         self._attr_device_class = SensorDeviceClass.ENERGY
 
-        # We DONT opt-in for statistics. Why?
+        # We DON'T opt-in for statistics. Why?
         # Those stats are generated from a real sensor, this sensor but…
         # we don't want that hass try to do anything with those statistics
         # because we handled generation and importing
+        #
         # self._attr_state_class = SensorStateClass.MEASUREMENT
 
         self.api = API()
 
     async def async_update_historical(self):
+        # Fill `HistoricalSensor._attr_historical_states` with HistoricalState's
+        # This functions is equivaled to the `Sensor.async_update` from
+        # HomeAssistant core
+        #
+        # Important: You must provide datetime with tzinfo
+
         self._attr_historical_states = [
             HistoricalState(
                 state=state,
