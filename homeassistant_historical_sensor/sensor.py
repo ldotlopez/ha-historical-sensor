@@ -110,18 +110,19 @@ class HistoricalSensor(SensorEntity):
     async def async_update_historical(self):
         """async_update_historical()
 
+        This method should be be implemented by sensors
+
         Implement this async method to fetch historical data from provider and store
         into self._attr_historical_states
         """
         raise NotImplementedError()
 
-    @abstractmethod
     async def async_calculate_statistic_data(
         self, hist_states: List[HistoricalState], *, latest: Optional[dict]
     ) -> List[StatisticData]:
         """Calculate statistics data from dated states
 
-        This method should be implemented by sensors
+        This method may be be implemented by sensors
         """
         raise NotImplementedError()
 
