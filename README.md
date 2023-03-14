@@ -25,7 +25,7 @@ Q. How it's accomplished?.
 
 A. It's a relatively easy answer but needs to be broken into some pieces:
   
-  1. A new property for sensors: `historical_states`. This property holds a list of `HistoricalState`s which are, basically, a `state`+`UTC timestamp` tuple, so… the data we want.
+  1. A new property for sensors: `historical_states`. This property holds a list of `HistoricalState`s which are, basically, a `state`+`datetime`  (with tzinfo), so… the data we want.
 
   2. A new hook for sensor: `async_update_historical_states`. This method is responsible to update `historical_states` property.  
      **This is the only function that needs to be implemented**.
