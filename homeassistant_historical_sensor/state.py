@@ -37,11 +37,6 @@ class HistoricalState:
         if not self.dt.tzinfo:
             raise ValueError(f"{self}.dt is missing tzinfo")
 
-        import ipdb
-
-        ipdb.set_trace()
-        pass
-
         utc = dtutil.as_utc(self.dt)
         ts = dtutil.utc_to_timestamp(utc)
         return self.state, ts

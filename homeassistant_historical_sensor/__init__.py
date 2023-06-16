@@ -27,9 +27,13 @@ from .state import HistoricalState
 
 LOGGER = logging.getLogger(__name__)
 
-if not (MAJOR_VERSION >= 2023 and MINOR_VERSION >= 2):
-    msg = "Required homeassistant version >=2023.2.0"
+if not (MAJOR_VERSION >= 2023 and MINOR_VERSION >= 6):
+    msg = "Required homeassistant version >=2023.6.0"
     LOGGER.debug(msg)
     raise SystemError(msg)
 
-__all__ = ["HistoricalSensor", "HistoricalState", "PollUpdateMixin"]
+__all__ = [
+    "HistoricalSensor",
+    "HistoricalState",
+    "PollUpdateMixin",
+]

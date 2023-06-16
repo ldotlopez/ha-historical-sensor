@@ -29,18 +29,19 @@ from homeassistant.components import recorder
 from homeassistant.components.recorder import db_schema as db_schema
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
 from homeassistant.components.recorder.statistics import (
+    StatisticsRow,
     async_add_external_statistics,
+    async_import_statistics,
     split_statistic_id,
+    valid_statistic_id,
 )
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dtutil
-from sqlalchemy import not_, or_
 
-from .patches import _build_attributes, _stringify_state
+from . import util
+from .patches import _stringify_state
 from .state import HistoricalState
-from .util import get_last_statistics_wrapper
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -98,13 +99,8 @@ class HistoricalSensor(SensorEntity):
         return []
 
     @property
-    def statistics_enabled(self) -> bool:
-        if hasattr(self, "_attr_statistics_enabled"):
-            return self._attr_statistics_enabled
-
-        smd = self.get_statatistics_metadata()
-        enabled = smd["has_mean"] or smd["has_sum"]
-        return enabled
+    def recorder(self):
+        return recorder.get_instance(self.hass)
 
     @abstractmethod
     async def async_update_historical(self):
@@ -114,15 +110,6 @@ class HistoricalSensor(SensorEntity):
 
         Implement this async method to fetch historical data from provider and store
         into self._attr_historical_states
-        """
-        raise NotImplementedError()
-
-    async def async_calculate_statistic_data(
-        self, hist_states: List[HistoricalState], *, latest: Optional[dict]
-    ) -> List[StatisticData]:
-        """Calculate statistics data from dated states
-
-        This method may be be implemented by sensors
         """
         raise NotImplementedError()
 
@@ -139,34 +126,161 @@ class HistoricalSensor(SensorEntity):
 
         hist_states = list(sorted(hist_states, key=lambda x: x.dt))
         _LOGGER.debug(
-            f"{self.entity_id}: {len(hist_states)} historical states collected from sensor"
+            f"{self.entity_id}: "
+            f"{len(hist_states)} historical states collected from sensor"
         )
 
         if not hist_states:
             return
 
         # Write states
-        await self._get_recorder_instance().async_add_executor_job(
-            self._save_states_into_recorder, hist_states
+        await self.recorder.async_add_executor_job(
+            self._write_recorder_states, hist_states
+        )
+        await self._write_statistic_data(hist_states)
+
+    def _write_recorder_states(self, hist_states: List[HistoricalState]):
+        with recorder.util.session_scope(
+            session=self.recorder.get_session()
+        ) as session:
+            # base_qs = session.query(db_schema.States).filter(
+            #     db_schema.States.entity_id == self.entity_id
+            # )
+
+            #
+            # Delete invalid states
+            #
+
+            try:
+                # states = base_qs.filter(
+                #     or_(
+                #         db_schema.States.state == STATE_UNKNOWN,
+                #         db_schema.States.state == STATE_UNAVAILABLE,
+                #     )
+                # )
+                # n_states = states.count()
+                # states.delete()
+                # session.commit()
+
+                n_states = util.delete_invalid_states(session, self.entity_id)
+                _LOGGER.debug(
+                    f"{self.entity_id}: " f"{n_states} invalid states deleted"
+                )
+
+            except sqlalchemy.exc.IntegrityError:
+                session.rollback()
+                _LOGGER.debug("Warning: Current recorder schema is not supported")
+                _LOGGER.debug(
+                    "Invalid states can't be deleted from recorder."
+                    + "This is not critical just unsightly for some graphs "
+                )
+
+            #
+            # Check latest state in the database
+            #
+
+            try:
+                latest = util.get_latest_state(session, self.entity_id)
+
+            except sqlalchemy.exc.DatabaseError:
+                _LOGGER.debug(
+                    "Error: Current recorder schema is not supported. "
+                    + "This error is fatal, please file a bug"
+                )
+                return
+
+            #
+            # Drop historical states older than lastest db state
+            #
+
+            # About deleting intersecting states instead of drop incomming
+            # overlapping states: This approach has been tested several times and
+            # always ends up causing unexpected failures. Sometimes the database
+            # schema changes and sometimes, depending on the engine, integrity
+            # failures appear. It is better to discard the new overlapping states
+            # than to delete them from the database.
+
+            if latest:
+                cutoff = dtutil.utc_from_timestamp(latest.last_updated_ts or 0)
+                _LOGGER.debug(
+                    f"{self.entity_id}: " f"lastest state: {latest.state} @ {cutoff}"
+                )
+                hist_states = [x for x in hist_states if x.dt > cutoff]
+
+            else:
+                _LOGGER.debug(f"{self.entity_id}: no previous states found")
+
+            #
+            # Check if there are any states left
+            #
+            if not hist_states:
+                _LOGGER.debug(f"{self.entity_id}: no new states")
+                return
+
+            state_meta, _ = util.get_states_meta(session, self.entity_id)
+
+            #
+            # Build recorder States
+            #
+            state_meta, _ = util.get_states_meta(
+                session, self.entity_id, create_if_missing=True
+            )
+
+            db_states: List[db_schema.States] = []
+            for idx, hist_state in enumerate(hist_states):
+                # attrs_as_dict = _build_attributes(self, hist_state.state)
+                # attrs_as_dict.update(hist_state.attributes)
+                # attrs_as_str = db_schema.JSON_DUMP(attrs_as_dict)
+
+                # attrs_as_bytes = (
+                #     b"{}" if hist_state.state is None else attrs_as_str.encode("utf-8")
+                # )
+
+                # attrs_hash = db_schema.StateAttributes.hash_shared_attrs_bytes(
+                #     attrs_as_bytes
+                # )
+
+                # state_attributes = db_schema.StateAttributes(
+                #     hash=attrs_hash, shared_attrs=attrs_as_str
+                # )
+
+                ts = dtutil.as_timestamp(hist_state.dt)
+                state = db_schema.States(
+                    # entity_id=self.entity_id,
+                    states_meta_rel=state_meta,
+                    last_changed_ts=ts,
+                    last_updated_ts=ts,
+                    old_state=db_states[idx - 1] if idx else latest,
+                    state=_stringify_state(self, hist_state.state),
+                    # state_attributes=state_attributes,
+                )
+
+                # _LOGGER.debug(
+                #     f"new state: "
+                #     f"dt={dtutil.as_local(hist_state.dt)} value={hist_state.state}"
+                # )
+                db_states.append(state)
+
+            util.save_states(session, db_states)
+
+            _LOGGER.debug(f"{self.entity_id}: {len(db_states)} saved into the database")
+
+    async def _write_statistic_data(self, hist_states: List[HistoricalState]):
+        if self.statatistic_id is None:
+            _LOGGER.debug(f"{self.entity_id}: statistics are not enabled")
+            return
+
+        statistics_meta = self.get_statatistic_metadata()
+
+        latest = await util.get_last_statistics_wrapper(
+            self.hass, statistics_meta["statistic_id"]
         )
 
-        # Write statistics if enabled
-        if self.statistics_enabled:
-            await self._async_save_states_into_statistics(hist_states)
-        else:
-            _LOGGER.debug(f"{self.entity_id}: statistics are not enabled")
-
-    def _get_recorder_instance(self):
-        return recorder.get_instance(self.hass)
-
-    async def _async_save_states_into_statistics(
-        self, hist_states: List[HistoricalState]
-    ):
-        # Don't do this
+        # Don't do this, see notes above "About deleting intersecting states"
         #
         # def delete_statistics():
         #     with recorder.util.session_scope(
-        #         session=self._get_recorder_instance().get_session()
+        #         session=self.recorder.get_session()
         #     ) as session:
         #         start_cutoff = hist_states[0].when - timedelta(hours=1)
         #         end_cutoff = hist_states[-1].when
@@ -181,18 +295,13 @@ class HistoricalSensor(SensorEntity):
         #             .filter(db_schema.Statistics.start < end_cutoff)
         #         )
         #         stats = [x.id for x in qs]
-
-        #     clear_statistics(self._get_recorder_instance(), stats)
+        #
+        #     clear_statistics(self.recorder, stats)
         #     _LOGGER.debug(f"Cleared {len(stats)} statistics")
+        #
+        # await self.recorder.async_add_executor_job(delete_statistics)
 
-        # await self._get_recorder_instance().async_add_executor_job(delete_statistics)
-
-        statistics_meta = self.get_statatistics_metadata()
-
-        latest = await get_last_statistics_wrapper(
-            self.hass, statistics_meta["statistic_id"]
-        )
-
+        hist_states = self.historical_states
         if latest is not None:
             cutoff = dtutil.utc_from_timestamp(latest["start"]) + timedelta(hours=1)
             hist_states = [x for x in hist_states if x.dt > cutoff]
@@ -209,168 +318,46 @@ class HistoricalSensor(SensorEntity):
             start_dt = dtutil.as_local(tmp.pop("start"))
             _LOGGER.debug(f"new statistic: start={start_dt}, value={tmp!r}")
 
-        # Note: Import statistics as external
-        async_add_external_statistics(self.hass, statistics_meta, statistics_data)
+        if valid_statistic_id(self.statatistic_id):
+            async_add_external_statistics(self.hass, statistics_meta, statistics_data)
+        else:
+            async_import_statistics(self.hass, statistics_meta, statistics_data)
+
         _LOGGER.debug(
             f"{self.entity_id}: collected {len(statistics_data)} statistic points"
         )
 
-    def _save_states_into_recorder(self, hist_states: List[HistoricalState]):
-        #
-        # 2023.2.1 Introduces last_updated_ts, last_changed_ts columns
-        #
+    @property
+    def statatistic_id(self) -> Optional[str]:
+        return None
 
-        with recorder.util.session_scope(
-            session=self._get_recorder_instance().get_session()
-        ) as session:
-            base_qs = session.query(db_schema.States).filter(
-                db_schema.States.entity_id == self.entity_id
-            )
+    def get_statatistic_metadata(self) -> StatisticMetaData:
+        if self.statatistic_id is None:
+            raise ValueError(f"{self.entity_id} statatistics_id is None")
 
-            #
-            # Delete invalid states
-            #
-
-            try:
-                states = base_qs.filter(
-                    or_(
-                        db_schema.States.state == STATE_UNKNOWN,
-                        db_schema.States.state == STATE_UNAVAILABLE,
-                    )
-                )
-                state_count = states.count()
-                states.delete()
-                session.commit()
-
-                _LOGGER.debug(f"Deleted {state_count} invalid states")
-
-            except sqlalchemy.exc.IntegrityError:
-                session.rollback()
-                _LOGGER.debug("Warning: Current recorder schema is not supported")
-                _LOGGER.debug(
-                    "Invalid states can't be deleted from recorder."
-                    + "This is not critical just unsightly for some graphs "
-                )
-
-            #
-            # Delete intersecting states (*)
-            #
-            # * This approach has been tested several times and always ends up
-            # causing unexpected failures. Sometimes the database schema
-            # changes and sometimes, depending on the engine, integrity
-            # failures appear.
-            # It is better to discard the new overlapping states than to
-            # delete them from the database.
-
-            # cutoff = dtutil.as_timestamp(hist_states[0].when)
-            # intersect_states = base_qs.filter(
-            #     db_schema.States.last_updated_ts >= cutoff
-            # )
-            # intersect_count = intersect_states.count()
-            # intersect_states.delete()
-            # session.commit()
-            #
-            # _LOGGER.debug(
-            #     f"Deleted {intersect_count} states after {hist_states[0].when}"
-            # )
-
-            #
-            # Check latest state in the database
-            #
-
-            try:
-                latest_state = (
-                    base_qs.filter(
-                        not_(
-                            or_(
-                                db_schema.States.state == STATE_UNAVAILABLE,
-                                db_schema.States.state == STATE_UNKNOWN,
-                            )
-                        )
-                    )
-                    .order_by(db_schema.States.last_updated_ts.desc())
-                    .first()
-                )
-            except sqlalchemy.exc.DatabaseError:
-                _LOGGER.debug(
-                    "Error: Current recorder schema is not supported. "
-                    + "This error is fatal, please file a bug"
-                )
-                return
-
-            #
-            # Drop historical states older than lastest db state
-            #
-            if latest_state:
-                cutoff = dtutil.utc_from_timestamp(latest_state.last_updated_ts or 0)
-                _LOGGER.debug(
-                    f"{self.entity_id}: lastest state found: {latest_state.state} @ {cutoff}"
-                )
-                hist_states = [x for x in hist_states if x.dt > cutoff]
-
-            else:
-                _LOGGER.debug(f"{self.entity_id}: no previous states found")
-
-            if not hist_states:
-                _LOGGER.debug(f"{self.entity_id}: no new states from API")
-                return
-
-            #
-            # Build recorder State, StateAttributes and Event
-            #
-
-            db_states: List[db_schema.States] = []
-            for idx, hist_state in enumerate(hist_states):
-                attrs_as_dict = _build_attributes(self, hist_state.state)
-                attrs_as_dict.update(hist_state.attributes)
-                attrs_as_str = db_schema.JSON_DUMP(attrs_as_dict)
-
-                attrs_as_bytes = (
-                    b"{}" if hist_state.state is None else attrs_as_str.encode("utf-8")
-                )
-
-                attrs_hash = db_schema.StateAttributes.hash_shared_attrs_bytes(
-                    attrs_as_bytes
-                )
-
-                state_attributes = db_schema.StateAttributes(
-                    hash=attrs_hash, shared_attrs=attrs_as_str
-                )
-
-                ts = dtutil.as_timestamp(hist_state.dt)
-                state = db_schema.States(
-                    entity_id=self.entity_id,
-                    last_changed_ts=ts,
-                    last_updated_ts=ts,
-                    old_state=db_states[idx - 1] if idx else latest_state,
-                    state=_stringify_state(self, hist_state.state),
-                    state_attributes=state_attributes,
-                )
-
-                _LOGGER.debug(
-                    f"new state: dt={dtutil.as_local(hist_state.dt)} value={hist_state.state}"
-                )
-                db_states.append(state)
-
-            session.add_all(db_states)
-            session.commit()
-
-            _LOGGER.debug(f"{self.entity_id}: {len(db_states)} saved into the database")
-
-    def get_statatistics_metadata(self) -> StatisticMetaData:
-        statistic_id = statistic_id = self.entity_id.replace(".", ":")
-        source = split_statistic_id(statistic_id)[0]
+        if valid_statistic_id(self.statatistic_id):
+            source = split_statistic_id(self.statatistic_id)[0]
+        else:
+            source = "recorder"
 
         metadata = StatisticMetaData(
             has_mean=False,
             has_sum=False,
             name=f"{self.name} Statistics",
             source=source,
-            statistic_id=statistic_id,
+            statistic_id=self.statatistic_id,
             unit_of_measurement=self.unit_of_measurement,
         )
 
         return metadata
+
+    async def async_calculate_statistic_data(
+        self,
+        hist_states: List[HistoricalState],
+        *,
+        latest: Optional[StatisticsRow] = None,
+    ) -> List[StatisticData]:
+        raise NotImplementedError()
 
 
 class PollUpdateMixin(HistoricalSensor):

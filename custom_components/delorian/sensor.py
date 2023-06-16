@@ -30,15 +30,9 @@ import statistics
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from homeassistant.components.recorder.models import (
-    StatisticData,
-    StatisticMetaData,
-)
-
-from homeassistant.components.sensor import (
-    SensorDeviceClass,
-    SensorEntity,
-)
+from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
+from homeassistant.components.recorder.statistics import StatisticsRow
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ENERGY_KILO_WATT_HOUR
 from homeassistant.core import HomeAssistant
@@ -47,13 +41,12 @@ from homeassistant.helpers.typing import DiscoveryInfoType
 from homeassistant.util import dt as dtutil
 from homeassistant_historical_sensor import (
     HistoricalSensor,
-    PollUpdateMixin,
     HistoricalState,
+    PollUpdateMixin,
 )
 
 from .api import API
 from .const import DOMAIN, NAME
-
 
 PLATFORM = "sensor"
 
@@ -108,21 +101,29 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
             )
         ]
 
-    def get_statatistics_metadata(self) -> StatisticMetaData:
+    @property
+    def statatistic_id(self) -> str:
+        return self.entity_id
+
+    def get_statatistic_metadata(self) -> StatisticMetaData:
         #
         # Add sum and mean to base statistics metadata
-        # Important: HistoricalSensor.get_statatistics_metadata returns an
-        # external source.
+        # Important: HistoricalSensor.get_statatistic_metadata returns an
+        # internal source by default.
         #
-        meta = super().get_statatistics_metadata()
+        meta = super().get_statatistic_metadata()
         meta["has_sum"] = True
         meta["has_mean"] = True
 
         return meta
 
     async def async_calculate_statistic_data(
-        self, hist_states: List[HistoricalState], *, latest: Optional[dict]
+        self,
+        hist_states: List[HistoricalState],
+        *,
+        latest: Optional[StatisticsRow] = None,
     ) -> List[StatisticData]:
+
         #
         # Group historical states by hour
         # Calculate sum, mean, etc...
