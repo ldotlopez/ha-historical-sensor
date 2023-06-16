@@ -217,14 +217,10 @@ class HistoricalSensor(SensorEntity):
                 _LOGGER.debug(f"{self.entity_id}: no new states")
                 return
 
-            state_meta, _ = util.get_states_meta(session, self.entity_id)
-
             #
             # Build recorder States
             #
-            state_meta, _ = util.get_states_meta(
-                session, self.entity_id, create_if_missing=True
-            )
+            state_meta = util.get_states_meta(session, self.entity_id)
 
             db_states: List[db_schema.States] = []
             for idx, hist_state in enumerate(hist_states):

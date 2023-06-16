@@ -54,17 +54,15 @@ async def get_last_statistics_wrapper(
     return res[statistic_id][0]
 
 
-def get_states_meta(session: Session, entity_id: str, *, create_if_missing=False):
+def get_states_meta(session: Session, entity_id: str) -> db_schema.StatesMeta:
     ret = session.execute(_get_base_stmt(session, entity_id)).scalar()
 
-    created = False
-
-    if not ret and create_if_missing:
+    if not ret:
         ret = db_schema.StatesMeta(entity_id=entity_id)
         session.add(ret)
-        created = True
+        session.commit()
 
-    return ret, created
+    return ret
 
 
 def _get_base_stmt(session: Session, entity_id: str):
