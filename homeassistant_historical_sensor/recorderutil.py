@@ -19,22 +19,29 @@
 
 
 import logging
+from contextlib import contextmanager
 from typing import List, Optional
 
-import sqlalchemy.exc
 from homeassistant.components import recorder
-from homeassistant.components.recorder import Recorder
-from homeassistant.components.recorder import db_schema as db_schema
+from homeassistant.components.recorder import db_schema
 from homeassistant.components.recorder.statistics import (
     StatisticsRow,
     get_last_statistics,
 )
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
-from sqlalchemy import and_, delete, not_, or_, select
+from homeassistant.helpers.entity import Entity
+from sqlalchemy import Select, not_, or_, select
 from sqlalchemy.orm import Session
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@contextmanager
+def hass_recorder_session(hass: HomeAssistant):
+    r = recorder.get_instance(hass)
+    with (recorder.util.session_scope(session=r.get_session())) as session:
+        yield session
 
 
 async def get_last_statistics_wrapper(
@@ -54,46 +61,53 @@ async def get_last_statistics_wrapper(
     return res[statistic_id][0]
 
 
-def get_states_meta(session: Session, entity_id: str) -> db_schema.StatesMeta:
-    ret = session.execute(_get_base_stmt(session, entity_id)).scalar()
-
-    if not ret:
-        ret = db_schema.StatesMeta(entity_id=entity_id)
-        session.add(ret)
-        session.commit()
-
-    return ret
-
-
-def _get_base_stmt(session: Session, entity_id: str):
+def _entity_id_states_stmt(session: Session, entity: Entity) -> Select:
     return (
         select(db_schema.States)
         .join(db_schema.StatesMeta)
-        .where(db_schema.StatesMeta.entity_id == entity_id)
+        .where(db_schema.StatesMeta.entity_id == entity.entity_id)
     )
 
 
-def delete_invalid_states(session: Session, entity_id: str):
-    stmt = _get_base_stmt(session, entity_id).where(
-        or_(
-            db_schema.States.state == STATE_UNKNOWN,
-            db_schema.States.state == STATE_UNAVAILABLE,
-        )
+def get_entity_states_meta(session: Session, entity: Entity) -> db_schema.StatesMeta:
+    res = session.execute(_entity_id_states_stmt(session, entity)).scalar()
+
+    if res:
+        return res.states_meta_rel
+
+    else:
+        ret = db_schema.StatesMeta(entity_id=entity.entity_id)
+        session.add(ret)
+        session.commit()
+
+        return ret
+
+
+def delete_entity_invalid_states(session: Session, entity: Entity):
+    stmt = _entity_id_states_stmt(session, entity).order_by(
+        db_schema.States.last_updated_ts.asc()
     )
-    states = session.execute(stmt).scalars().fetchall()
 
-    n_states = len(states)
+    prev = None
+    to_delete = []
 
-    for state in states:
+    for state in session.execute(stmt).scalars():
+        if state.state in [STATE_UNKNOWN, STATE_UNAVAILABLE]:
+            to_delete.append(state)
+        else:
+            state.old_state_id = prev.state_id if prev else None  # type: ignore[attr-defined]
+            session.add(state)
+            prev = state
+
+    for state in to_delete:
         session.delete(state)
+
     session.commit()
 
-    return n_states
 
-
-def get_latest_state(session: Session, entity_id: str):
+def get_entity_latest_state(session: Session, entity: Entity):
     stmt = (
-        _get_base_stmt(session, entity_id)
+        _entity_id_states_stmt(session, entity)
         .where(
             not_(
                 or_(

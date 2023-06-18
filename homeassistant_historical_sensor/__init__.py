@@ -28,7 +28,7 @@ from .state import HistoricalState
 LOGGER = logging.getLogger(__name__)
 
 if not (MAJOR_VERSION >= 2023 and MINOR_VERSION >= 6):
-    msg = "Required homeassistant version >=2023.6.0"
+    msg = "Required homeassistant version >={MAJOR_VERSION}.{MINOR_VERSION}.0"
     LOGGER.debug(msg)
     raise SystemError(msg)
 

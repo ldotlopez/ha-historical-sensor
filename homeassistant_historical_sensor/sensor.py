@@ -26,10 +26,9 @@ from typing import List, Optional
 import sqlalchemy.exc
 import sqlalchemy.orm
 from homeassistant.components import recorder
-from homeassistant.components.recorder import db_schema as db_schema
+from homeassistant.components.recorder import db_schema
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
 from homeassistant.components.recorder.statistics import (
-    StatisticsRow,
     async_add_external_statistics,
     async_import_statistics,
     split_statistic_id,
@@ -39,7 +38,14 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dtutil
 
-from . import util
+from .recorderutil import (
+    delete_entity_invalid_states,
+    get_entity_states_meta,
+    get_entity_latest_state,
+    hass_recorder_session,
+    get_last_statistics_wrapper,
+    save_states,
+)
 from .patches import _stringify_state
 from .state import HistoricalState
 
@@ -96,11 +102,7 @@ class HistoricalSensor(SensorEntity):
         if hasattr(self, "_attr_historical_states"):
             return self._attr_historical_states
 
-        return []
-
-    @property
-    def recorder(self):
-        return recorder.get_instance(self.hass)
+        raise NotImplementedError()
 
     @abstractmethod
     async def async_update_historical(self):
@@ -134,35 +136,26 @@ class HistoricalSensor(SensorEntity):
             return
 
         # Write states
-        await self.recorder.async_add_executor_job(
+        await self._async_write_recorder_states(hist_states)
+
+        # Write statistics
+        await self._async_write_statistic_data(hist_states)
+
+    async def _async_write_recorder_states(
+        self, hist_states: List[HistoricalState]
+    ) -> None:
+        return await recorder.get_instance(self.hass).async_add_executor_job(
             self._write_recorder_states, hist_states
         )
-        await self._write_statistic_data(hist_states)
 
     def _write_recorder_states(self, hist_states: List[HistoricalState]):
-        with recorder.util.session_scope(
-            session=self.recorder.get_session()
-        ) as session:
-            # base_qs = session.query(db_schema.States).filter(
-            #     db_schema.States.entity_id == self.entity_id
-            # )
-
+        with hass_recorder_session(self.hass) as session:
             #
             # Delete invalid states
             #
 
             try:
-                # states = base_qs.filter(
-                #     or_(
-                #         db_schema.States.state == STATE_UNKNOWN,
-                #         db_schema.States.state == STATE_UNAVAILABLE,
-                #     )
-                # )
-                # n_states = states.count()
-                # states.delete()
-                # session.commit()
-
-                n_states = util.delete_invalid_states(session, self.entity_id)
+                n_states = delete_entity_invalid_states(session, self)
                 _LOGGER.debug(
                     f"{self.entity_id}: " f"{n_states} invalid states deleted"
                 )
@@ -180,7 +173,7 @@ class HistoricalSensor(SensorEntity):
             #
 
             try:
-                latest = util.get_latest_state(session, self.entity_id)
+                latest = get_entity_latest_state(session, self)
 
             except sqlalchemy.exc.DatabaseError:
                 _LOGGER.debug(
@@ -220,7 +213,7 @@ class HistoricalSensor(SensorEntity):
             #
             # Build recorder States
             #
-            state_meta = util.get_states_meta(session, self.entity_id)
+            state_meta = get_entity_states_meta(session, self)
 
             db_states: List[db_schema.States] = []
             for idx, hist_state in enumerate(hist_states):
@@ -257,25 +250,25 @@ class HistoricalSensor(SensorEntity):
                 # )
                 db_states.append(state)
 
-            util.save_states(session, db_states)
+            save_states(session, db_states)
 
             _LOGGER.debug(f"{self.entity_id}: {len(db_states)} saved into the database")
 
-    async def _write_statistic_data(self, hist_states: List[HistoricalState]):
+    async def _async_write_statistic_data(self, hist_states: List[HistoricalState]):
         if self.statatistic_id is None:
             _LOGGER.debug(f"{self.entity_id}: statistics are not enabled")
             return
 
         statistics_meta = self.get_statatistic_metadata()
 
-        latest = await util.get_last_statistics_wrapper(
+        latest = await get_last_statistics_wrapper(
             self.hass, statistics_meta["statistic_id"]
         )
 
         # Don't do this, see notes above "About deleting intersecting states"
         #
         # def delete_statistics():
-        #     with recorder.util.session_scope(
+        #     with recorder.session_scope(
         #         session=self.recorder.get_session()
         #     ) as session:
         #         start_cutoff = hist_states[0].when - timedelta(hours=1)
@@ -399,7 +392,3 @@ class PollUpdateMixin(HistoricalSensor):
     async def _async_historical_handle_update(self) -> None:
         await self.async_update_historical()
         await self.async_write_ha_historical_states()
-
-
-def local_dt_from_timestamp(ts: float):
-    return dtutil.as_local(dtutil.utc_from_timestamp(ts))
