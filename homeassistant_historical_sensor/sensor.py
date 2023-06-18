@@ -348,10 +348,7 @@ class HistoricalSensor(SensorEntity):
         return metadata
 
     async def async_calculate_statistic_data(
-        self,
-        hist_states: List[HistoricalState],
-        *,
-        latest: Optional[StatisticsRow] = None,
+        self, hist_states: List[HistoricalState], *, latest: Optional[dict]
     ) -> List[StatisticData]:
         raise NotImplementedError()
 
