@@ -40,7 +40,7 @@ _LOGGER = logging.getLogger(__name__)
 @contextmanager
 def hass_recorder_session(hass: HomeAssistant):
     r = recorder.get_instance(hass)
-    with (recorder.util.session_scope(session=r.get_session())) as session:
+    with recorder.util.session_scope(session=r.get_session()) as session:
         yield session
 
 
@@ -83,7 +83,7 @@ def get_entity_states_meta(session: Session, entity: Entity) -> db_schema.States
         return ret
 
 
-def delete_entity_invalid_states(session: Session, entity: Entity):
+def delete_entity_invalid_states(session: Session, entity: Entity) -> int:
     stmt = _entity_id_states_stmt(session, entity).order_by(
         db_schema.States.last_updated_ts.asc()
     )
@@ -103,6 +103,8 @@ def delete_entity_invalid_states(session: Session, entity: Entity):
         session.delete(state)
 
     session.commit()
+
+    return len(to_delete)
 
 
 def get_entity_latest_state(session: Session, entity: Entity):
