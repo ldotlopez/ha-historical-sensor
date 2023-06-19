@@ -38,7 +38,7 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dtutil
 
-from .patches import _stringify_state
+from .patches import _build_attributes, _stringify_state
 from .recorderutil import (
     delete_entity_invalid_states,
     get_entity_latest_state,
@@ -223,21 +223,21 @@ class HistoricalSensor(SensorEntity):
 
             db_states: List[db_schema.States] = []
             for idx, hist_state in enumerate(hist_states):
-                # attrs_as_dict = _build_attributes(self, hist_state.state)
-                # attrs_as_dict.update(hist_state.attributes)
-                # attrs_as_str = db_schema.JSON_DUMP(attrs_as_dict)
+                attrs_as_dict = _build_attributes(self, hist_state.state)
+                attrs_as_dict.update(hist_state.attributes)
+                attrs_as_str = db_schema.JSON_DUMP(attrs_as_dict)
 
-                # attrs_as_bytes = (
-                #     b"{}" if hist_state.state is None else attrs_as_str.encode("utf-8")
-                # )
+                attrs_as_bytes = (
+                    b"{}" if hist_state.state is None else attrs_as_str.encode("utf-8")
+                )
 
-                # attrs_hash = db_schema.StateAttributes.hash_shared_attrs_bytes(
-                #     attrs_as_bytes
-                # )
+                attrs_hash = db_schema.StateAttributes.hash_shared_attrs_bytes(
+                    attrs_as_bytes
+                )
 
-                # state_attributes = db_schema.StateAttributes(
-                #     hash=attrs_hash, shared_attrs=attrs_as_str
-                # )
+                state_attributes = db_schema.StateAttributes(
+                    hash=attrs_hash, shared_attrs=attrs_as_str
+                )
 
                 ts = dtutil.as_timestamp(hist_state.dt)
                 state = db_schema.States(
@@ -247,7 +247,7 @@ class HistoricalSensor(SensorEntity):
                     last_updated_ts=ts,
                     old_state=db_states[idx - 1] if idx else latest,
                     state=_stringify_state(self, hist_state.state),
-                    # state_attributes=state_attributes,
+                    state_attributes=state_attributes,
                 )
 
                 # _LOGGER.debug(
