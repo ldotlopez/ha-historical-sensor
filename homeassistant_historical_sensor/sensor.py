@@ -129,7 +129,7 @@ class HistoricalSensor(SensorEntity):
         hist_states = list(sorted(hist_states, key=lambda x: x.dt))
         _LOGGER.debug(
             f"{self.entity_id}: "
-            f"{len(hist_states)} historical states collected from sensor"
+            f"{len(hist_states)} historical states present in sensor"
         )
 
         if not hist_states:
@@ -156,9 +156,7 @@ class HistoricalSensor(SensorEntity):
 
             try:
                 n_states = delete_entity_invalid_states(session, self)
-                _LOGGER.debug(
-                    f"{self.entity_id}: " f"{n_states} invalid states deleted"
-                )
+                _LOGGER.debug(f"{self.entity_id}: cleaned {n_states} invalid states")
 
             except sqlalchemy.exc.IntegrityError:
                 session.rollback()
@@ -196,12 +194,13 @@ class HistoricalSensor(SensorEntity):
             if latest:
                 cutoff = dtutil.utc_from_timestamp(latest.last_updated_ts or 0)
                 _LOGGER.debug(
-                    f"{self.entity_id}: " f"lastest state: {latest.state} @ {cutoff}"
+                    f"{self.entity_id}: "
+                    f"lastest state found at {cutoff} ({latest.state})"
                 )
                 hist_states = [x for x in hist_states if x.dt > cutoff]
 
             else:
-                _LOGGER.debug(f"{self.entity_id}: no previous states found")
+                _LOGGER.debug(f"{self.entity_id}: no previous state found")
 
             #
             # Check if there are any states left
@@ -209,6 +208,9 @@ class HistoricalSensor(SensorEntity):
             if not hist_states:
                 _LOGGER.debug(f"{self.entity_id}: no new states")
                 return
+
+            n_hist_states = len(hist_states)
+            _LOGGER.debug(f"{self.entity_id}: found {n_hist_states} new states")
 
             #
             # Build recorder States
