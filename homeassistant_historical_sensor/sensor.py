@@ -38,15 +38,15 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dtutil
 
+from .patches import _stringify_state
 from .recorderutil import (
     delete_entity_invalid_states,
-    get_entity_states_meta,
     get_entity_latest_state,
-    hass_recorder_session,
+    get_entity_states_meta,
     get_last_statistics_wrapper,
+    hass_recorder_session,
     save_states,
 )
-from .patches import _stringify_state
 from .state import HistoricalState
 
 _LOGGER = logging.getLogger(__name__)
@@ -136,19 +136,23 @@ class HistoricalSensor(SensorEntity):
             return
 
         # Write states
-        await self._async_write_recorder_states(hist_states)
+        n = len(await self._async_write_recorder_states(hist_states))
+        _LOGGER.debug(f"{self.entity_id}: {n} states written into the database")
 
         # Write statistics
-        await self._async_write_statistic_data(hist_states)
+        n = len(await self._async_write_statistic_data(hist_states))
+        _LOGGER.debug(f"{self.entity_id}: {n} statistics points written into database")
 
     async def _async_write_recorder_states(
         self, hist_states: List[HistoricalState]
-    ) -> None:
+    ) -> List[HistoricalState]:
         return await recorder.get_instance(self.hass).async_add_executor_job(
             self._write_recorder_states, hist_states
         )
 
-    def _write_recorder_states(self, hist_states: List[HistoricalState]):
+    def _write_recorder_states(
+        self, hist_states: List[HistoricalState]
+    ) -> List[HistoricalState]:
         with hass_recorder_session(self.hass) as session:
             #
             # Delete invalid states
@@ -178,7 +182,7 @@ class HistoricalSensor(SensorEntity):
                     "Error: Current recorder schema is not supported. "
                     + "This error is fatal, please file a bug"
                 )
-                return
+                return []
 
             #
             # Drop historical states older than lastest db state
@@ -207,7 +211,7 @@ class HistoricalSensor(SensorEntity):
             #
             if not hist_states:
                 _LOGGER.debug(f"{self.entity_id}: no new states")
-                return
+                return []
 
             n_hist_states = len(hist_states)
             _LOGGER.debug(f"{self.entity_id}: found {n_hist_states} new states")
@@ -254,12 +258,14 @@ class HistoricalSensor(SensorEntity):
 
             save_states(session, db_states)
 
-            _LOGGER.debug(f"{self.entity_id}: {len(db_states)} saved into the database")
+            return hist_states
 
-    async def _async_write_statistic_data(self, hist_states: List[HistoricalState]):
+    async def _async_write_statistic_data(
+        self, hist_states: List[HistoricalState]
+    ) -> List[HistoricalState]:
         if self.statatistic_id is None:
             _LOGGER.debug(f"{self.entity_id}: statistics are not enabled")
-            return
+            return []
 
         statistics_meta = self.get_statatistic_metadata()
 
@@ -314,9 +320,7 @@ class HistoricalSensor(SensorEntity):
         else:
             async_import_statistics(self.hass, statistics_meta, statistics_data)
 
-        _LOGGER.debug(
-            f"{self.entity_id}: collected {len(statistics_data)} statistic points"
-        )
+        return hist_states
 
     @property
     def statatistic_id(self) -> Optional[str]:
@@ -343,7 +347,7 @@ class HistoricalSensor(SensorEntity):
         return metadata
 
     async def async_calculate_statistic_data(
-        self, hist_states: List[HistoricalState], *, latest: Optional[dict]
+        self, hist_states: List[HistoricalState], *, latest: Optional[dict] = None
     ) -> List[StatisticData]:
         raise NotImplementedError()
 

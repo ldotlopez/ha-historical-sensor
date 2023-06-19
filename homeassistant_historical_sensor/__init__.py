@@ -20,15 +20,26 @@
 
 import logging
 
-from homeassistant.const import MAJOR_VERSION, MINOR_VERSION
+from homeassistant.const import (
+    MAJOR_VERSION,
+    MINOR_VERSION,
+    __version__ as HA_FULL_VERSION,
+)
 
 from .sensor import HistoricalSensor, PollUpdateMixin
 from .state import HistoricalState
+from .consts import MIN_REQ_MAJOR_VERSION, MIN_REQ_MINOR_VERSION
 
 LOGGER = logging.getLogger(__name__)
 
-if not (MAJOR_VERSION >= 2023 and MINOR_VERSION >= 6):
-    msg = "Required homeassistant version >={MAJOR_VERSION}.{MINOR_VERSION}.0"
+if not (
+    (MAJOR_VERSION >= MIN_REQ_MAJOR_VERSION)
+    and (MINOR_VERSION >= MIN_REQ_MINOR_VERSION)
+):
+    msg = (
+        f"Running HomeAssistant {HA_FULL_VERSION}, "
+        f"Minimum required version >={MIN_REQ_MAJOR_VERSION}.{MIN_REQ_MINOR_VERSION}.0"
+    )
     LOGGER.debug(msg)
     raise SystemError(msg)
 
