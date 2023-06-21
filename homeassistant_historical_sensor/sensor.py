@@ -310,10 +310,10 @@ class HistoricalSensor(SensorEntity):
             hist_states, latest=latest
         )
 
-        for stat in statistics_data:
-            tmp = dict(stat)
-            start_dt = dtutil.as_local(tmp.pop("start"))
-            _LOGGER.debug(f"new statistic: start={start_dt}, value={tmp!r}")
+        # for stat in statistics_data:
+        #     tmp = dict(stat)
+        #     start_dt = dtutil.as_local(tmp.pop("start"))
+        #     _LOGGER.debug(f"new statistic: start={start_dt}, value={tmp!r}")
 
         if valid_statistic_id(self.statatistic_id):
             async_add_external_statistics(self.hass, statistics_meta, statistics_data)

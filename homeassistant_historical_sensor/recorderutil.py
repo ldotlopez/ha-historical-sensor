@@ -70,10 +70,20 @@ def _entity_id_states_stmt(session: Session, entity: Entity) -> Select:
 
 
 def get_entity_states_meta(session: Session, entity: Entity) -> db_schema.StatesMeta:
-    res = session.execute(_entity_id_states_stmt(session, entity)).scalar()
+    # Don't re-use _entity_id_states_stmt.
+    # It's posible to have a StatesMeta for the current entity but zero States in the
+    # database.
+    # In that case the _entity_id_states_stmt will return zero rows but it doesn't mean
+    # that we need to create a new StatesMeta
+
+    res = session.execute(
+        select(db_schema.StatesMeta).where(
+            db_schema.StatesMeta.entity_id == entity.entity_id
+        )
+    ).scalar()
 
     if res:
-        return res.states_meta_rel
+        return res
 
     else:
         ret = db_schema.StatesMeta(entity_id=entity.entity_id)
