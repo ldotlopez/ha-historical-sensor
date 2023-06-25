@@ -62,6 +62,8 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
     #
 
     def __init__(self, *args, **kwargs):
+        super().__init__()
+
         self._attr_has_entity_name = True
         self._attr_name = NAME
 
@@ -102,16 +104,16 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         ]
 
     @property
-    def statatistic_id(self) -> str:
+    def statistic_id(self) -> str:
         return self.entity_id
 
-    def get_statatistic_metadata(self) -> StatisticMetaData:
+    def get_statistic_metadata(self) -> StatisticMetaData:
         #
         # Add sum and mean to base statistics metadata
-        # Important: HistoricalSensor.get_statatistic_metadata returns an
+        # Important: HistoricalSensor.get_statistic_metadata returns an
         # internal source by default.
         #
-        meta = super().get_statatistic_metadata()
+        meta = super().get_statistic_metadata()
         meta["has_sum"] = True
         meta["has_mean"] = True
 

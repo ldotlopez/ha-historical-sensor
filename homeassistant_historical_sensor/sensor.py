@@ -263,11 +263,11 @@ class HistoricalSensor(SensorEntity):
     async def _async_write_statistic_data(
         self, hist_states: List[HistoricalState]
     ) -> List[HistoricalState]:
-        if self.statatistic_id is None:
+        if self.statistic_id is None:
             _LOGGER.debug(f"{self.entity_id}: statistics are not enabled")
             return []
 
-        statistics_meta = self.get_statatistic_metadata()
+        statistics_meta = self.get_statistic_metadata()
 
         latest = await get_last_statistics_wrapper(
             self.hass, statistics_meta["statistic_id"]
@@ -315,7 +315,7 @@ class HistoricalSensor(SensorEntity):
         #     start_dt = dtutil.as_local(tmp.pop("start"))
         #     _LOGGER.debug(f"new statistic: start={start_dt}, value={tmp!r}")
 
-        if valid_statistic_id(self.statatistic_id):
+        if valid_statistic_id(self.statistic_id):
             async_add_external_statistics(self.hass, statistics_meta, statistics_data)
         else:
             async_import_statistics(self.hass, statistics_meta, statistics_data)
@@ -323,15 +323,16 @@ class HistoricalSensor(SensorEntity):
         return hist_states
 
     @property
-    def statatistic_id(self) -> Optional[str]:
+    def statistic_id(self) -> Optional[str]:
+
         return None
 
-    def get_statatistic_metadata(self) -> StatisticMetaData:
-        if self.statatistic_id is None:
-            raise ValueError(f"{self.entity_id} statatistics_id is None")
+    def get_statistic_metadata(self) -> StatisticMetaData:
+        if self.statistic_id is None:
+            raise ValueError(f"{self.entity_id} statistic_id is None")
 
-        if valid_statistic_id(self.statatistic_id):
-            source = split_statistic_id(self.statatistic_id)[0]
+        if valid_statistic_id(self.statistic_id):
+            source = split_statistic_id(self.statistic_id)[0]
         else:
             source = "recorder"
 
@@ -340,7 +341,7 @@ class HistoricalSensor(SensorEntity):
             has_sum=False,
             name=f"{self.name} Statistics",
             source=source,
-            statistic_id=self.statatistic_id,
+            statistic_id=self.statistic_id,
             unit_of_measurement=self.unit_of_measurement,
         )
 
