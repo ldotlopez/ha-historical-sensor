@@ -8,7 +8,7 @@
 <!-- Sponsors -->
 <a href="https://www.buymeacoffee.com/zepolson" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 30px !important;width: 105px !important;" ></a>
 
-Feed historical data into Home Assistant database. 
+Feed historical data into Home Assistant database.
 
 HomeAssistant architecture is built around polling (or pushing) data from devices, or data providers, in "real-time". Some data sources (e.g, energy, water or gas providers) can't be polled in real-time or readings are not accurate. However reading historical data, like last month consumption, it's possible and accurate. This module adds support to this.
 
@@ -24,7 +24,7 @@ Current projects using this module:
 Q. How it's accomplished?.
 
 A. It's a relatively easy answer but needs to be broken into some pieces:
-  
+
   1. A new property for sensors: `historical_states`. This property holds a list of `HistoricalState`s which are, basically, a `state`+`datetime`  (with tzinfo), so… the data we want.
 
   2. A new hook for sensor: `async_update_historical_states`. This method is responsible to update `historical_states` property.  

@@ -71,7 +71,7 @@ class HistoricalSensor(SensorEntity):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._attr_historical_states: List[HistoricalState] = []  # type: ignore[annotation-unchecked]
+        self._attr_historical_states: list[HistoricalState] = []  # type: ignore[annotation-unchecked]
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
@@ -159,15 +159,15 @@ class HistoricalSensor(SensorEntity):
         _LOGGER.debug(f"{self.entity_id}: {n} statistics points written into database")
 
     async def _async_write_recorder_states(
-        self, hist_states: List[HistoricalState]
-    ) -> List[HistoricalState]:
+        self, hist_states: list[HistoricalState]
+    ) -> list[HistoricalState]:
         return await recorder.get_instance(self.hass).async_add_executor_job(
             self._write_recorder_states, hist_states
         )
 
     def _write_recorder_states(
-        self, hist_states: List[HistoricalState]
-    ) -> List[HistoricalState]:
+        self, hist_states: list[HistoricalState]
+    ) -> list[HistoricalState]:
         with hass_recorder_session(self.hass) as session:
             #
             # Delete invalid states
@@ -236,7 +236,7 @@ class HistoricalSensor(SensorEntity):
             #
             state_meta = get_entity_states_meta(session, self)
 
-            db_states: List[db_schema.States] = []
+            db_states: list[db_schema.States] = []
             for idx, hist_state in enumerate(hist_states):
                 attrs_as_dict = _build_attributes(self, hist_state.state)
                 attrs_as_dict.update(hist_state.attributes)
@@ -276,8 +276,8 @@ class HistoricalSensor(SensorEntity):
             return hist_states
 
     async def _async_write_statistic_data(
-        self, hist_states: List[HistoricalState]
-    ) -> List[HistoricalState]:
+        self, hist_states: list[HistoricalState]
+    ) -> list[HistoricalState]:
         if self.statistic_id is None:
             _LOGGER.debug(f"{self.entity_id}: statistics are not enabled")
             return []
@@ -362,8 +362,8 @@ class HistoricalSensor(SensorEntity):
         return metadata
 
     async def async_calculate_statistic_data(
-        self, hist_states: List[HistoricalState], *, latest: Optional[dict] = None
-    ) -> List[StatisticData]:
+        self, hist_states: list[HistoricalState], *, latest: dict | None = None
+    ) -> list[StatisticData]:
         raise NotImplementedError()
 
 

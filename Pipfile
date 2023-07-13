@@ -11,6 +11,7 @@ sqlalchemy = "*"
 ipdb = "*"
 ipython = "*"
 homeassistant-historical-sensor = {editable = true, path = "."}
+pre-commit = "*"
 
 [requires]
 python_version = "3"

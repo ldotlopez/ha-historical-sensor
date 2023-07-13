@@ -44,7 +44,7 @@ def hass_recorder_session(hass: HomeAssistant):
 
 async def get_last_statistics_wrapper(
     hass: HomeAssistant, statistic_id: str
-) -> Optional[StatisticsRow]:
+) -> StatisticsRow | None:
     res = await recorder.get_instance(hass).async_add_executor_job(
         get_last_statistics,
         hass,
@@ -131,6 +131,6 @@ def get_entity_latest_state(session: Session, entity: Entity):
     return session.execute(stmt).scalar()
 
 
-def save_states(session: Session, states: List[db_schema.States]):
+def save_states(session: Session, states: list[db_schema.States]):
     session.add_all(states)
     session.commit()

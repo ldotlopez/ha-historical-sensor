@@ -63,7 +63,7 @@ def _stringify_state(self: Entity, state: Any) -> str:
 # https://github.com/home-assistant/core/blob/dev/homeassistant/helpers/entity.py
 
 
-def _build_attributes(self: Entity, state: Any) -> Dict[str, str]:
+def _build_attributes(self: Entity, state: Any) -> dict[str, str]:
     attr = self.capability_attributes
     attr = dict(attr) if attr else {}
 

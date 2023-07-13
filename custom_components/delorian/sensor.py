@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 # Copyright (C) 2021-2023 Luis López <luis@cuarentaydos.com>
 #
 # This program is free software; you can redistribute it and/or
@@ -39,6 +37,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import DiscoveryInfoType
 from homeassistant.util import dt as dtutil
+
 from homeassistant_historical_sensor import (
     HistoricalSensor,
     HistoricalState,
@@ -121,11 +120,10 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
 
     async def async_calculate_statistic_data(
         self,
-        hist_states: List[HistoricalState],
+        hist_states: list[HistoricalState],
         *,
-        latest: Optional[StatisticsRow] = None,
-    ) -> List[StatisticData]:
-
+        latest: StatisticsRow | None = None,
+    ) -> list[StatisticData]:
         #
         # Group historical states by hour
         # Calculate sum, mean, etc...
@@ -167,7 +165,7 @@ async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
     async_add_devices: AddEntitiesCallback,
-    discovery_info: Optional[DiscoveryInfoType] = None,  # noqa DiscoveryInfoType | None
+    discovery_info: DiscoveryInfoType | None = None,  # noqa DiscoveryInfoType | None
 ):
     device_info = hass.data[DOMAIN][config_entry.entry_id]
     sensors = [

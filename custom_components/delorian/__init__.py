@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 # Copyright (C) 2021-2023 Luis López <luis@cuarentaydos.com>
 #
 # This program is free software; you can redistribute it and/or
@@ -23,11 +21,9 @@ import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-
 from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN, NAME
-
 
 PLATFORMS: list[str] = ["sensor"]
 

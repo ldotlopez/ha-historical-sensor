@@ -1,12 +1,18 @@
 {
   "domain": "delorian",
   "name": "Delorian - Testing integration for historical sensors",
-  "after_dependencies": ["recorder"],
-  "codeowners": ["@ldotlopez"],
+  "after_dependencies": [
+    "recorder"
+  ],
+  "codeowners": [
+    "@ldotlopez"
+  ],
   "config_flow": true,
   "documentation": "https://github.com/ldotlopez/ha-historical-sensor",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/ldotlopez/ha-historical-sensor/issues",
-  "requirements": ["homeassistant-historical-sensor==2.0.0a0"],
-  "version": "2.0.0a0"
+  "requirements": [
+    "homeassistant-historical-sensor==2.0.0b0"
+  ],
+  "version": "2.0.0b0"
 }
