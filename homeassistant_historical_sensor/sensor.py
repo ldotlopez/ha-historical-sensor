@@ -75,6 +75,23 @@ class HistoricalSensor(SensorEntity):
         super().__init__(*args, **kwargs)
         self._attr_historical_states: List[HistoricalState] = []  # type: ignore[annotation-unchecked]
 
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+
+        #
+        # Setting state_class enables HomeAssistant to run statistic calculations on
+        # this sensor.
+        # We handle our own statistics and can be different from the Home Assisstant
+        # ones (also, we don't fully understand some internal procedures of
+        # HomeAssistant)
+        #
+
+        if self.statistic_id and hasattr(self, "state_class"):
+            _LOGGER.warning(
+                f"{self.entity_id}: state_class attribute is set. "
+                "This is NOT supported, your statistics will be messed sooner or later"
+            )
+
     @property
     def should_poll(self):
         # HistoricalSensors MUST NOT poll.
