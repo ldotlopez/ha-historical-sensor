@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 # Copyright (C) 2021-2023 Luis López <luis@cuarentaydos.com>
 #
 # This program is free software; you can redistribute it and/or
@@ -53,7 +51,7 @@ async def get_last_statistics_wrapper(
         1,
         statistic_id,
         True,
-        set(["last_reset", "max", "mean", "min", "state", "sum"]),
+        {"last_reset", "max", "mean", "min", "state", "sum"},
     )
     if not res:
         return None

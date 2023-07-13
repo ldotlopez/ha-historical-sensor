@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 # Copyright (C) 2021-2023 Luis López <luis@cuarentaydos.com>
 #
 # This program is free software; you can redistribute it and/or
@@ -20,15 +18,12 @@
 
 import logging
 
-from homeassistant.const import (
-    MAJOR_VERSION,
-    MINOR_VERSION,
-    __version__ as HA_FULL_VERSION,
-)
+from homeassistant.const import MAJOR_VERSION, MINOR_VERSION
+from homeassistant.const import __version__ as HA_FULL_VERSION
 
+from .consts import MIN_REQ_MAJOR_VERSION, MIN_REQ_MINOR_VERSION
 from .sensor import HistoricalSensor, PollUpdateMixin
 from .state import HistoricalState
-from .consts import MIN_REQ_MAJOR_VERSION, MIN_REQ_MINOR_VERSION
 
 LOGGER = logging.getLogger(__name__)
 

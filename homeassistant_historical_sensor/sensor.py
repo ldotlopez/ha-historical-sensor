@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 # Copyright (C) 2021-2023 Luis López <luis@cuarentaydos.com>
 #
 # This program is free software; you can redistribute it and/or
@@ -340,8 +338,7 @@ class HistoricalSensor(SensorEntity):
         return hist_states
 
     @property
-    def statistic_id(self) -> Optional[str]:
-
+    def statistic_id(self) -> str | None:
         return None
 
     def get_statistic_metadata(self) -> StatisticMetaData:

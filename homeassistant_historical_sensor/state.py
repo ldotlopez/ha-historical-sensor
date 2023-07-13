@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 # Copyright (C) 2021-2023 Luis López <luis@cuarentaydos.com>
 #
 # This program is free software; you can redistribute it and/or
@@ -18,9 +16,10 @@
 # USA.
 
 
-from dataclasses import dataclass, field, asdict
-from typing import Any
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from typing import Any
+
 from homeassistant.util import dt as dtutil
 
 
