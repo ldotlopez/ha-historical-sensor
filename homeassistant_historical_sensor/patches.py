@@ -18,7 +18,7 @@
 
 import math
 import sys
-from typing import Any, Dict
+from typing import Any
 
 from homeassistant.config import DATA_CUSTOMIZE
 from homeassistant.const import (

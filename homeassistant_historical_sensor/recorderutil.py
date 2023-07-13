@@ -18,7 +18,7 @@
 
 import logging
 from contextlib import contextmanager
-from typing import List, Optional
+from typing import Literal
 
 from homeassistant.components import recorder
 from homeassistant.components.recorder import db_schema
@@ -43,15 +43,26 @@ def hass_recorder_session(hass: HomeAssistant):
 
 
 async def get_last_statistics_wrapper(
-    hass: HomeAssistant, statistic_id: str
+    hass: HomeAssistant,
+    statistic_id: str,
+    *,
+    convert_units: bool = True,
+    types: set[Literal["last_reset", "max", "mean", "min", "state", "sum"]] = {
+        "last_reset",
+        "max",
+        "mean",
+        "min",
+        "state",
+        "sum",
+    },
 ) -> StatisticsRow | None:
     res = await recorder.get_instance(hass).async_add_executor_job(
         get_last_statistics,
         hass,
         1,
         statistic_id,
-        True,
-        {"last_reset", "max", "mean", "min", "state", "sum"},
+        convert_units,
+        types,
     )
     if not res:
         return None

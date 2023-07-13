@@ -4,14 +4,14 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
+homeassistant-historical-sensor = {editable = true, path = "."}
 
 [dev-packages]
-homeassistant = "*"
 sqlalchemy = "*"
 ipdb = "*"
 ipython = "*"
-homeassistant-historical-sensor = {editable = true, path = "."}
 pre-commit = "*"
+homeassistant = "*"
 
 [requires]
 python_version = "3"

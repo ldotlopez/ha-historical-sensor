@@ -19,7 +19,6 @@
 import logging
 from abc import abstractmethod
 from datetime import timedelta
-from typing import List, Optional
 
 import sqlalchemy.exc
 import sqlalchemy.orm

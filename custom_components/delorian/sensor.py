@@ -24,10 +24,12 @@
 #
 
 import itertools
+import logging
 import statistics
 from datetime import datetime, timedelta
 from typing import List, Optional
 
+from homeassistant.components import recorder
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
 from homeassistant.components.recorder.statistics import StatisticsRow
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
@@ -48,6 +50,9 @@ from .api import API
 from .const import DOMAIN, NAME
 
 PLATFORM = "sensor"
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
@@ -85,6 +90,9 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
 
         self.api = API()
 
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+
     async def async_update_historical(self):
         # Fill `HistoricalSensor._attr_historical_states` with HistoricalState's
         # This functions is equivaled to the `Sensor.async_update` from
@@ -92,7 +100,7 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         #
         # Important: You must provide datetime with tzinfo
 
-        self._attr_historical_states = [
+        hist_states = [
             HistoricalState(
                 state=state,
                 dt=dtutil.as_local(dt),  # Add tzinfo, required by HistoricalSensor
@@ -101,6 +109,7 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
                 start=datetime.now() - timedelta(days=3), step=timedelta(minutes=15)
             )
         ]
+        self._attr_historical_states = hist_states
 
     @property
     def statistic_id(self) -> str:
