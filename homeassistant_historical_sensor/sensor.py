@@ -83,7 +83,7 @@ class HistoricalSensor(SensorEntity):
         # HomeAssistant)
         #
 
-        if self.statistic_id and hasattr(self, "state_class"):
+        if self.statistic_id and getattr(self, "state_class", None):
             _LOGGER.warning(
                 f"{self.entity_id}: state_class attribute is set. "
                 "This is NOT supported, your statistics will be messed sooner or later"
