@@ -18,7 +18,7 @@
 
 import logging
 from abc import abstractmethod
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import sqlalchemy.exc
 import sqlalchemy.orm
@@ -396,7 +396,7 @@ class PollUpdateMixin(HistoricalSensor):
         await self._async_historical_handle_update()
         self._remove_time_tracker_fn = async_track_time_interval(
             self.hass,
-            self._async_historical_handle_update,  # type: ignore[call-arg]
+            self._async_historical_handle_update,
             self.UPDATE_INTERVAL,
         )
 
@@ -409,6 +409,6 @@ class PollUpdateMixin(HistoricalSensor):
         if self._remove_time_tracker_fn:
             self._remove_time_tracker_fn()
 
-    async def _async_historical_handle_update(self) -> None:
+    async def _async_historical_handle_update(self, _: datetime | None = None) -> None:
         await self.async_update_historical()
         await self.async_write_ha_historical_states()

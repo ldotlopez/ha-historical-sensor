@@ -81,10 +81,11 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         self._attr_native_unit_of_measurement = ENERGY_KILO_WATT_HOUR
         self._attr_device_class = SensorDeviceClass.ENERGY
 
-        # We DON'T opt-in for statistics. Why?
-        # Those stats are generated from a real sensor, this sensor but…
-        # we don't want that hass try to do anything with those statistics
-        # because we handled generation and importing
+        # We DON'T opt-in for statistics (don't set state_class). Why?
+        #
+        # Those statistics are generated from a real sensor, this sensor, but we don't
+        # want that hass try to do anything with those statistics because we
+        # (HistoricalSensor) handle generation and importing
         #
         # self._attr_state_class = SensorStateClass.MEASUREMENT
 
