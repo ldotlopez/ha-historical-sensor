@@ -39,6 +39,24 @@ A. Historical sensors can't provide the current state, Home Assistant will show 
 
 ### External vs. internal statistics
 
+Due to the way the data is inserted a posteriori into the recorder, Home
+Assistant cannot calculate statistics on historical states automatically.  This
+is particularly problematic for the Energy dashboard, which relies on these
+statistics.
+
+It is possible to provide those statisticts by
+
+  1. Providing a `get_statistic_metadata` method returning a dictionary of
+     supported statistics. Generally, the sum is sufficient for the energy
+     dashboard, so setting `has_sum` to True is all it takes
+
+  2. Providing an `async_calculate_statistic_data` method to do the calculation.
+     It will take a list of `HistoricalState`, and the latest
+     `homeassistant.components.recorder.statistics.StatisticsRow` as arguments,
+     and should return an array of
+     `homeassistant.components.recorder.models.StatisticData` (with `start`,
+     `state` and the statistics, e.g., `sum`).
+
 ### Importing CSV files
 
 
