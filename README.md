@@ -17,6 +17,7 @@ This module uses the `recorder` component and custom state creation to store sta
 Current projects using this module:
 
 - [ideenergy energy monitor](https://github.com/ldotlopez/ha-ideenergy)
+- [AuroraPlusHA](https://github.com/LeighCurran/AuroraPlusHA)
 
 
 ## Technical details
