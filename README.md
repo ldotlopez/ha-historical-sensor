@@ -33,8 +33,8 @@ Current projects using this module:
 
 💡 Check the delorian test integration in this repository
 
-1. Import home_assistant_histocial_sensort and define your sensor _⚠️
-**Don't** set the SensorEntity.state property. See FAQ below_
+1. Import home_assistant_histocial_sensort and define your sensor.  
+   _⚠️ **Don't** set the SensorEntity.state property. See FAQ below_
 
 ```
 from homeassistant_historical_sensor import (
@@ -47,8 +47,10 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
 ```
 
 
-2. Define the `SensorEntity.async_update_historical` method and save your historical states into the `HistoricalSensor._attr_historical_states`
-attribute
+2. Define the `SensorEntity.async_update_historical` method and save your
+historical states into the `HistoricalSensor._attr_historical_states`
+attribute.
+
 ```
    async def async_update_historical(self):
         self._attr_historical_states = [
@@ -67,7 +69,10 @@ some code.
 
 1. Define the `statistic_id` property for your sensor. For simplicity, you
 can use the entity_id.  _⚠️ **Don't** set the SensorEntity.state_class
-property. See FAQ below_ ``` @property def statistic_id(self) -> str:
+property. See FAQ below_
+
+```
+@property def statistic_id(self) -> str:
     return self.entity_id
 ```
 
@@ -77,7 +82,8 @@ property. See FAQ below_ ``` @property def statistic_id(self) -> str:
 It's recommended to use just "sum" or "mean" statistics, not both,
 the one which applies to your sensor. Both are shown here just as example.
 
-``` def get_statistic_metadata(self) -> StatisticMetaData:
+```
+def get_statistic_metadata(self) -> StatisticMetaData:
     meta = super().get_statistic_metadata() meta["has_sum"] = True
     meta["has_mean"] = True
 
@@ -113,6 +119,14 @@ A. It's a relatively easy answer but needs to be broken into some pieces:
   `async_write_ha_historical_states`. This method handles the details of
   creating tweaked states in the past and write them into the database
   using the `recorder` component of Home Assistant core.
+
+Q. **What is `PollUpdateMixin` and why I need to inherit from it?**
+
+A. Home Assistant sensors can use [the poll or the push model](https://developers.home-assistant.io/docs/integration_fetching_data/#push-vs-poll) to update data.
+
+Poll mode does not mix well with historical data, causes blanks and empty points in history and graphs. Because of that, historical sensors use a false push model: historical sensors are never updated by them self.
+
+`PollUpdateMixin` solves this and automatically provides the poll functionality back without any code. The sensor will be updated at startup and every hour. This interval can be configured via the `UPDATE_INTERVAL` class attribute.
 
 Q. **Why it is recommended to DON'T set the `state` and the `state_class`
 properties?**
