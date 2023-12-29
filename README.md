@@ -34,7 +34,7 @@ Current projects using this module:
 
 💡 Check the delorian test integration in this repository
 
-1. Import home_assistant_histocial_sensort and define your sensor.  
+1. Import home_assistant_historical_sensor and define your sensor.
    _⚠️ **Don't** set the SensorEntity.state property. See FAQ below_
 
 ```
