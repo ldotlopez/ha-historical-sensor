@@ -12,6 +12,8 @@ ipdb = "*"
 ipython = "*"
 pre-commit = "*"
 homeassistant = "*"
+build = "*"
+twine = "*"
 
 [requires]
 python_version = "3"

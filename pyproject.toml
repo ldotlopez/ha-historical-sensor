@@ -1,12 +1,45 @@
+[project]
+name = "homeassistant-historical-sensor"
+version = "2.0.0rc3"
+dependencies = [
+    "importlib-metadata; python_version >= '3.11'",
+]
+authors = [
+  {name = "Luis López", email = "luis@cuarentaydos.com"},
+]
+readme = "README.md"
+description ="Historical sensors for HomeAssistant"
+license = {file = "LICENSE"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+requires-python = ">3.11"
+
+[project.urls]
+Homepage = "https://github.com/ldotlopez/ha-historical-sensor"
+Issues = "https://github.com/ldotlopez/ha-historical-sensor/issues"
+Repository = "https://github.com/ldotlopez/ha-historical-sensor.git"
+
 [build-system]
-requires = ["setuptools>=40.8.0", "wheel"]
+requires = [
+    "setuptools>=42",
+    "wheel"
+]
 build-backend = "setuptools.build_meta"
 
+[bdist_wheel]
+universal = 1
+
 [tool.black]
-target-version = ['py39']
+target-version = ['py311']
 
 [tool.isort]
 profile = "black"
 
 [tool.mypy]
 files = ['homeassistant_historical_sensor']
+
+[tool.setuptools]
+packages = ["homeassistant_historical_sensor"]
