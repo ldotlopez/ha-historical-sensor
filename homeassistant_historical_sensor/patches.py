@@ -32,8 +32,7 @@ from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
-    TEMP_CELSIUS,
-    TEMP_FAHRENHEIT,
+    UnitOfTemperature,
 )
 from homeassistant.helpers.entity import Entity
 
@@ -113,7 +112,7 @@ def _build_attributes(self: Entity, state: Any) -> dict[str, str]:
         unit_of_measure = attr.get(ATTR_UNIT_OF_MEASUREMENT)
         units = self.hass.config.units
         if (
-            unit_of_measure in (TEMP_CELSIUS, TEMP_FAHRENHEIT)
+            unit_of_measure in (UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT)
             and unit_of_measure != units.temperature_unit
         ):
             prec = len(state) - state.index(".") - 1 if "." in state else 0
