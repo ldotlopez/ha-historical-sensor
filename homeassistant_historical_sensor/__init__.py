@@ -26,11 +26,9 @@ from .sensor import HistoricalSensor, PollUpdateMixin
 from .state import HistoricalState
 
 LOGGER = logging.getLogger(__name__)
-
-if not (
-    (MAJOR_VERSION >= MIN_REQ_MAJOR_VERSION)
-    and (MINOR_VERSION >= MIN_REQ_MINOR_VERSION)
-):
+min_ver = (MIN_REQ_MAJOR_VERSION * 12) + MIN_REQ_MINOR_VERSION
+cur_ver = MAJOR_VERSION * 12 + MINOR_VERSION
+if cur_ver < min_ver:
     msg = (
         f"Running HomeAssistant {HA_FULL_VERSION}, "
         f"Minimum required version >={MIN_REQ_MAJOR_VERSION}.{MIN_REQ_MINOR_VERSION}.0"
