@@ -27,14 +27,12 @@ import itertools
 import logging
 import statistics
 from datetime import datetime, timedelta
-from typing import List, Optional
 
-from homeassistant.components import recorder
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
 from homeassistant.components.recorder.statistics import StatisticsRow
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ENERGY_KILO_WATT_HOUR
+from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import DiscoveryInfoType
@@ -50,9 +48,6 @@ from .api import API
 from .const import DOMAIN, NAME
 
 PLATFORM = "sensor"
-
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
@@ -78,7 +73,7 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         self._attr_state = None
 
         # Define whatever you are
-        self._attr_native_unit_of_measurement = ENERGY_KILO_WATT_HOUR
+        self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
         self._attr_device_class = SensorDeviceClass.ENERGY
 
         # We DON'T opt-in for statistics (don't set state_class). Why?

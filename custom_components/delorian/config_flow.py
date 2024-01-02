@@ -17,7 +17,7 @@
 # USA.
 
 
-from typing import Any, Optional
+from typing import Any
 
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
