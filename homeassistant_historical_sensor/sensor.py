@@ -237,7 +237,7 @@ class HistoricalSensor(SensorEntity):
 
             db_states: list[db_schema.States] = []
             for idx, hist_state in enumerate(hist_states):
-                attrs_as_dict = _build_attributes(self, hist_state.state)
+                attrs_as_dict = _build_attributes(self)
                 attrs_as_dict.update(hist_state.attributes)
                 attrs_as_str = db_schema.JSON_DUMP(attrs_as_dict)
 

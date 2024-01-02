@@ -20,7 +20,6 @@ import math
 import sys
 from typing import Any
 
-from homeassistant.config import DATA_CUSTOMIZE
 from homeassistant.const import (
     ATTR_ASSUMED_STATE,
     ATTR_ATTRIBUTION,
@@ -32,7 +31,6 @@ from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
-    UnitOfTemperature,
 )
 from homeassistant.helpers.entity import Entity
 
@@ -42,10 +40,10 @@ FLOAT_PRECISION = abs(int(math.floor(math.log10(abs(sys.float_info.epsilon))))) 
 # Modified version of
 # homeassistant.helpers.entity.Entity._stringify_state
 # https://github.com/home-assistant/core/blob/dev/homeassistant/helpers/entity.py
-
-
 def _stringify_state(self: Entity, state: Any) -> str:
     """Convert state to string."""
+    # Historical sensors are usually unavailable, ignore current state, handle only
+    # state availability
     if not self.available:
         return STATE_UNAVAILABLE
     if state is None:
@@ -58,69 +56,44 @@ def _stringify_state(self: Entity, state: Any) -> str:
 
 
 # Code extracted and modified from
-# homeassistant.helpers.entity.Entity._async_write_ha_state
+# homeassistant.helpers.entity.Entity._async_generate_attributes
 # https://github.com/home-assistant/core/blob/dev/homeassistant/helpers/entity.py
+def _build_attributes(self: Entity) -> dict[str, Any]:
+    """Calculate state string and attribute mapping."""
+    entry = self.registry_entry
 
-
-def _build_attributes(self: Entity, state: Any) -> dict[str, str]:
     attr = self.capability_attributes
     attr = dict(attr) if attr else {}
 
-    state = _stringify_state(self, state)
-    if self.available:
+    available = self.available  # only call self.available once per update cycle
+    if available:
         attr.update(self.state_attributes or {})
-        extra_state_attributes = self.extra_state_attributes
-        # Backwards compatibility for "device_state_attributes" deprecated in 2021.4
-        # Add warning in 2021.6, remove in 2021.10
-        if extra_state_attributes is None:
-            extra_state_attributes = self.device_state_attributes
-        attr.update(extra_state_attributes or {})
+        attr.update(self.extra_state_attributes or {})
 
-    unit_of_measurement = self.unit_of_measurement
-    if unit_of_measurement is not None:
+    if (unit_of_measurement := self.unit_of_measurement) is not None:
         attr[ATTR_UNIT_OF_MEASUREMENT] = unit_of_measurement
-
-    entry = self.registry_entry
-    # pylint: disable=consider-using-ternary
-    if (name := (entry and entry.name) or self.name) is not None:
-        attr[ATTR_FRIENDLY_NAME] = name
-
-    if (icon := (entry and entry.icon) or self.icon) is not None:
-        attr[ATTR_ICON] = icon
-
-    if (entity_picture := self.entity_picture) is not None:
-        attr[ATTR_ENTITY_PICTURE] = entity_picture
 
     if assumed_state := self.assumed_state:
         attr[ATTR_ASSUMED_STATE] = assumed_state
 
-    if (supported_features := self.supported_features) is not None:
-        attr[ATTR_SUPPORTED_FEATURES] = supported_features
-
-    if (device_class := self.device_class) is not None:
-        attr[ATTR_DEVICE_CLASS] = str(device_class)
-
     if (attribution := self.attribution) is not None:
         attr[ATTR_ATTRIBUTION] = attribution
 
-    # Overwrite properties that have been set in the config file.
-    if DATA_CUSTOMIZE in self.hass.data:
-        attr.update(self.hass.data[DATA_CUSTOMIZE].get(self.entity_id))
+    if (
+        device_class := (entry and entry.device_class) or self.device_class
+    ) is not None:
+        attr[ATTR_DEVICE_CLASS] = str(device_class)
 
-    # Convert temperature if we detect one
-    try:
-        unit_of_measure = attr.get(ATTR_UNIT_OF_MEASUREMENT)
-        units = self.hass.config.units
-        if (
-            unit_of_measure in (UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT)
-            and unit_of_measure != units.temperature_unit
-        ):
-            prec = len(state) - state.index(".") - 1 if "." in state else 0
-            temp = units.temperature(float(state), unit_of_measure)
-            state = str(round(temp) if prec == 0 else round(temp, prec))
-            attr[ATTR_UNIT_OF_MEASUREMENT] = units.temperature_unit
-    except ValueError:
-        # Could not convert state to float
-        pass
+    if (entity_picture := self.entity_picture) is not None:
+        attr[ATTR_ENTITY_PICTURE] = entity_picture
+
+    if (icon := (entry and entry.icon) or self.icon) is not None:
+        attr[ATTR_ICON] = icon
+
+    if (name := (entry and entry.name) or self._friendly_name_internal()) is not None:
+        attr[ATTR_FRIENDLY_NAME] = name
+
+    if (supported_features := self.supported_features) is not None:
+        attr[ATTR_SUPPORTED_FEATURES] = supported_features
 
     return attr
