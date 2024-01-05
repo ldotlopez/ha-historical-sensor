@@ -15,10 +15,10 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301,
 # USA.
 
-
 import logging
 from abc import abstractmethod
 from datetime import datetime, timedelta
+from functools import cached_property
 
 import sqlalchemy.exc
 import sqlalchemy.orm
@@ -86,11 +86,11 @@ class HistoricalSensor(SensorEntity):
         if self.statistic_id and getattr(self, "state_class", None):
             _LOGGER.warning(
                 f"{self.entity_id}: state_class attribute is set. "
-                "This is NOT supported, your statistics will be messed sooner or later"
+                + "This is NOT supported, your statistics will be messed sooner or later"
             )
 
-    @property
-    def should_poll(self):
+    @cached_property
+    def should_poll(self) -> bool:
         # HistoricalSensors MUST NOT poll.
         # Polling creates incorrect states at intermediate time points.
 
@@ -143,7 +143,7 @@ class HistoricalSensor(SensorEntity):
         hist_states = list(sorted(hist_states, key=lambda x: x.dt))
         _LOGGER.debug(
             f"{self.entity_id}: "
-            f"{len(hist_states)} historical states present in sensor"
+            + f"{len(hist_states)} historical states present in sensor"
         )
 
         if not hist_states:
@@ -213,7 +213,7 @@ class HistoricalSensor(SensorEntity):
                 cutoff = dtutil.utc_from_timestamp(latest.last_updated_ts or 0)
                 _LOGGER.debug(
                     f"{self.entity_id}: "
-                    f"lastest state found at {cutoff} ({latest.state})"
+                    + f"lastest state found at {cutoff} ({latest.state})"
                 )
                 hist_states = [x for x in hist_states if x.dt > cutoff]
 

@@ -24,12 +24,10 @@
 #
 
 import itertools
-import logging
 import statistics
 from datetime import datetime, timedelta
 
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
-from homeassistant.components.recorder.statistics import StatisticsRow
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy
@@ -124,10 +122,7 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         return meta
 
     async def async_calculate_statistic_data(
-        self,
-        hist_states: list[HistoricalState],
-        *,
-        latest: StatisticsRow | None = None,
+        self, hist_states: list[HistoricalState], *, latest: dict | None = None
     ) -> list[StatisticData]:
         #
         # Group historical states by hour

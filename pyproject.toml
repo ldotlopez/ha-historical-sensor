@@ -1,3 +1,5 @@
+# https://packaging.python.org/tutorials/packaging-projects/
+
 [project]
 name = "homeassistant-historical-sensor"
 version = "2.0.0rc4"
@@ -15,7 +17,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-requires-python = ">3.11"
+requires-python = ">=3.11"
 
 [project.urls]
 Homepage = "https://github.com/ldotlopez/ha-historical-sensor"
@@ -40,6 +42,9 @@ profile = "black"
 
 [tool.mypy]
 files = ['homeassistant_historical_sensor']
+
+[tool.pyupgrade]
+addopts = "--py311-plus"
 
 [tool.setuptools]
 packages = ["homeassistant_historical_sensor"]

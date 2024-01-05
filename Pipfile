@@ -6,13 +6,16 @@ name = "pypi"
 [packages]
 
 [dev-packages]
+black = "*"
+build = "*"
+homeassistant = ">=2024.1.0"
 homeassistant-historical-sensor = {editable = true, path = "."}
-sqlalchemy = "*"
 ipdb = "*"
 ipython = "*"
+isort = "*"
+mypy = "*"
 pre-commit = "*"
-homeassistant = ">=2024.1.0b0"
-build = "*"
+sqlalchemy = "*"
 twine = "*"
 
 [requires]
