@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from typing import Literal
 
 from homeassistant.components import recorder
-from homeassistant.components.recorder import db_schema
+from homeassistant.components.recorder import Recorder, db_schema
 from homeassistant.components.recorder.statistics import (
     StatisticsRow,
     get_last_statistics,
@@ -40,6 +40,20 @@ def hass_recorder_session(hass: HomeAssistant):
     r = recorder.get_instance(hass)
     with recorder.util.session_scope(session=r.get_session()) as session:
         yield session
+
+
+async def hass_get_entity_states_metadata_id(
+    hass: HomeAssistant, entity: Entity
+) -> int | None:
+    rec = recorder.get_instance(hass)
+    return await rec.async_add_executor_job(
+        recorder_get_entity_states_metadata_id, rec, entity
+    )
+
+
+def recorder_get_entity_states_metadata_id(rec: Recorder, entity: Entity) -> int | None:
+    with rec.get_session() as sess:
+        return rec.states_meta_manager.get(entity.entity_id, sess, True)
 
 
 async def get_last_statistics_wrapper(

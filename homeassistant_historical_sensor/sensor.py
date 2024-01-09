@@ -32,7 +32,7 @@ from homeassistant.components.recorder.statistics import (
     valid_statistic_id,
 )
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.util import dt as dtutil
 
 from .patches import _build_attributes, _stringify_state
@@ -41,6 +41,7 @@ from .recorderutil import (
     get_entity_latest_state,
     get_entity_states_meta,
     get_last_statistics_wrapper,
+    hass_get_entity_states_metadata_id,
     hass_recorder_session,
     save_states,
 )
@@ -410,5 +411,14 @@ class PollUpdateMixin(HistoricalSensor):
             self._remove_time_tracker_fn()
 
     async def _async_historical_handle_update(self, _: datetime | None = None) -> None:
+        metadata_id = await hass_get_entity_states_metadata_id(self.hass, self)
+        if metadata_id is None:
+            retry_in = timedelta(seconds=30 * 1.05)
+            _LOGGER.debug(
+                f"{self.entity_id} not yet fully ready, StatesMeta object is not ready. Retry in {retry_in}"
+            )
+            async_call_later(self.hass, retry_in, self._async_historical_handle_update)
+            return
+
         await self.async_update_historical()
         await self.async_write_ha_historical_states()
