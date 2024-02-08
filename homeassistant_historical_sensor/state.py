@@ -16,26 +16,42 @@
 # USA.
 
 
+import functools
+import itertools
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from math import ceil
 from typing import Any
-
-from homeassistant.util import dt as dtutil
 
 
 @dataclass
 class HistoricalState:
     state: Any
-    dt: datetime
+    ts: float
     attributes: dict[str, Any] = field(default_factory=dict)
 
     def asdict(self):
         return asdict(self)
 
-    def as_value_and_timestamp(self):
-        if not self.dt.tzinfo:
-            raise ValueError(f"{self}.dt is missing tzinfo")
 
-        utc = dtutil.as_utc(self.dt)
-        ts = dtutil.utc_to_timestamp(utc)
-        return self.state, ts
+def group_by_interval(
+    historical_states: list[HistoricalState], **blockize_kwargs
+) -> Iterator[Any]:
+    fn = functools.partial(blockize, **blockize_kwargs)
+    yield from itertools.groupby(historical_states, key=lambda x: fn)
+
+
+def blockize(
+    hist_state: HistoricalState,
+    *,
+    granurality: int = 60 * 60,
+    border_in_previous_block: int = True,
+) -> int:
+    ts = ceil(hist_state.ts)
+    block = ts // granurality
+    leftover = ts % granurality
+
+    if border_in_previous_block and leftover == 0:
+        block = block - 1
+
+    return block * granurality
