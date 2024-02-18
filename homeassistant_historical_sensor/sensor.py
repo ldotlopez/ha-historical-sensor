@@ -14,7 +14,6 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301,
 # USA.
-
 import logging
 from abc import abstractmethod
 from datetime import datetime, timedelta
@@ -33,19 +32,10 @@ from homeassistant.components.recorder.statistics import (
 )
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
-from homeassistant.util import dt as dtutil
 
+from . import timemachine as tm
 from .consts import DELAY_ON_MISSING_STATES_METADATA
 from .patches import _build_attributes, _stringify_state
-from .recorderutil import (
-    delete_entity_invalid_states,
-    get_entity_latest_state,
-    get_entity_states_meta,
-    get_last_statistics_wrapper,
-    hass_get_entity_states_metadata_id,
-    hass_recorder_session,
-    save_states,
-)
 from .state import HistoricalState
 
 _LOGGER = logging.getLogger(__name__)
@@ -102,7 +92,7 @@ class HistoricalSensor(SensorEntity):
     def state(self):
         # Better report unavailable than anything
         #
-        # Another aproach is to return data from historical entity, but causes
+        # Another approach is to return data from historical entity, but causes
         # wrong results. Keep here for reference.
         #
         # HistoricalSensors doesn't use poll but state is accessed only once when
@@ -131,14 +121,17 @@ class HistoricalSensor(SensorEntity):
         """
         raise NotImplementedError()
 
-    async def _schedule_on_missing_states_metadata(self, fn) -> bool:
-        metadata_id = await hass_get_entity_states_metadata_id(self.hass, self)
-        if metadata_id is not None:
+    async def _schedule_on_missing_states_meta(self, fn) -> bool:
+        states_metadata_id = await tm.hass_get_entity_states_metadata_id(
+            self.hass, self
+        )
+
+        if states_metadata_id is not None:
             return False
 
-        _LOGGER.debug(
-            f"{self.entity_id} not yet fully ready, StatesMeta object is not ready."
-            + f"Retry in {DELAY_ON_MISSING_STATES_METADATA} seconds"
+        _LOGGER.warning(
+            f"{self.entity_id}: not yet fully ready, states meta information is "
+            + f"unavailablele, retring in {DELAY_ON_MISSING_STATES_METADATA} seconds."
         )
 
         async_call_later(self.hass, DELAY_ON_MISSING_STATES_METADATA, fn)
@@ -150,52 +143,41 @@ class HistoricalSensor(SensorEntity):
         This method writes `self.historical_states` into database
         """
 
-        if await self._schedule_on_missing_states_metadata(
+        if await self._schedule_on_missing_states_meta(
             self.async_write_ha_historical_states
         ):
             return
 
-        _LOGGER.debug(f"{self.entity_id} states medata ready")
-
-        hist_states = self.historical_states
-        if any([True for x in hist_states if x.dt.tzinfo is None]):
-            _LOGGER.error("historical_states MUST include tzinfo")
-            return
-
-        hist_states = list(sorted(hist_states, key=lambda x: x.dt))
-        _LOGGER.debug(
-            f"{self.entity_id}: "
-            + f"{len(hist_states)} historical states present in sensor"
-        )
-
-        if not hist_states:
-            return
+        _LOGGER.debug(f"{self.entity_id} states meta ready")
 
         # Write states
-        n = len(await self._async_write_states(hist_states))
+        n = len(await self._async_write_states(self.historical_states))
         _LOGGER.debug(f"{self.entity_id}: {n} states written into the database")
 
-        # Write statistics
-        n = len(await self._async_write_statistics(hist_states))
+        # # Write statistics
+        n = len(await self._async_write_statistics(self.historical_states))
         _LOGGER.debug(f"{self.entity_id}: {n} statistics points written into database")
 
     async def _async_write_states(
         self, hist_states: list[HistoricalState]
-    ) -> list[HistoricalState]:
+    ) -> list[db_schema.States]:
         return await recorder.get_instance(self.hass).async_add_executor_job(
             self._recorder_write_states, hist_states
         )
 
     def _recorder_write_states(
         self, hist_states: list[HistoricalState]
-    ) -> list[HistoricalState]:
-        with hass_recorder_session(self.hass) as session:
+    ) -> list[db_schema.States]:
+        if not hist_states:
+            return []
+
+        with tm.hass_recorder_session(self.hass) as session:
             #
             # Delete invalid states
             #
 
             try:
-                n_states = delete_entity_invalid_states(session, self)
+                n_states = len(tm.delete_invalid_states(session, self))
                 _LOGGER.debug(f"{self.entity_id}: cleaned {n_states} invalid states")
 
             except sqlalchemy.exc.IntegrityError:
@@ -207,60 +189,13 @@ class HistoricalSensor(SensorEntity):
                 )
 
             #
-            # Check latest state in the database
-            #
-
-            try:
-                latest = get_entity_latest_state(session, self)
-
-            except sqlalchemy.exc.DatabaseError:
-                _LOGGER.debug(
-                    "Error: Current recorder schema is not supported. "
-                    + "This error is fatal, please file a bug"
-                )
-                return []
-
-            #
-            # Drop historical states older than lastest db state
-            #
-
-            # About deleting intersecting states instead of drop incomming
-            # overlapping states: This approach has been tested several times and
-            # always ends up causing unexpected failures. Sometimes the database
-            # schema changes and sometimes, depending on the engine, integrity
-            # failures appear. It is better to discard the new overlapping states
-            # than to delete them from the database.
-
-            if latest:
-                cutoff = dtutil.utc_from_timestamp(latest.last_updated_ts or 0)
-                _LOGGER.debug(
-                    f"{self.entity_id}: "
-                    + f"lastest state found at {cutoff} ({latest.state})"
-                )
-                hist_states = [x for x in hist_states if x.dt > cutoff]
-
-            else:
-                _LOGGER.debug(f"{self.entity_id}: no previous state found")
-
-            #
-            # Check if there are any states left
-            #
-            if not hist_states:
-                _LOGGER.debug(f"{self.entity_id}: no new states")
-                return []
-
-            n_hist_states = len(hist_states)
-            _LOGGER.debug(f"{self.entity_id}: found {n_hist_states} new states")
-
-            #
             # Build recorder States
             #
-            state_meta = get_entity_states_meta(session, self)
 
             db_states: list[db_schema.States] = []
-            for idx, hist_state in enumerate(hist_states):
-                attrs_as_dict = _build_attributes(self)
-                attrs_as_dict.update(hist_state.attributes)
+            base_attrs_dict = _build_attributes(self)
+            for hist_state in hist_states:
+                attrs_as_dict = base_attrs_dict | hist_state.attributes
                 attrs_as_str = db_schema.JSON_DUMP(attrs_as_dict)
 
                 attrs_as_bytes = (
@@ -275,26 +210,18 @@ class HistoricalSensor(SensorEntity):
                     hash=attrs_hash, shared_attrs=attrs_as_str
                 )
 
-                ts = dtutil.as_timestamp(hist_state.dt)
                 state = db_schema.States(
-                    # entity_id=self.entity_id,
-                    states_meta_rel=state_meta,
-                    last_changed_ts=ts,
-                    last_updated_ts=ts,
-                    old_state=db_states[idx - 1] if idx else latest,
+                    last_changed_ts=hist_state.ts,
+                    last_updated_ts=hist_state.ts,
                     state=_stringify_state(self, hist_state.state),
                     state_attributes=state_attributes,
                 )
 
-                # _LOGGER.debug(
-                #     f"new state: "
-                #     f"dt={dtutil.as_local(hist_state.dt)} value={hist_state.state}"
-                # )
                 db_states.append(state)
 
-            save_states(session, db_states)
+            ret = tm.save_states(session, self, db_states, overwrite_overlaping=True)
 
-            return hist_states
+            return ret
 
     async def _async_write_statistics(
         self, hist_states: list[HistoricalState]
@@ -303,58 +230,58 @@ class HistoricalSensor(SensorEntity):
             _LOGGER.debug(f"{self.entity_id}: statistics are not enabled")
             return []
 
-        statistics_meta = self.get_statistic_metadata()
+        if not hist_states:
+            return []
 
-        latest = await get_last_statistics_wrapper(
-            self.hass, statistics_meta["statistic_id"]
+        statistics_metadata = self.get_statistic_metadata()
+
+        hist_states = list(sorted(hist_states, key=lambda x: x.ts))
+
+        latest_stats_data = await tm.hass_get_last_statistic(
+            self.hass, statistics_metadata
         )
 
-        # Don't do this, see notes above "About deleting intersecting states"
         #
-        # def delete_statistics():
-        #     with recorder.session_scope(
-        #         session=self.recorder.get_session()
-        #     ) as session:
-        #         start_cutoff = hist_states[0].when - timedelta(hours=1)
-        #         end_cutoff = hist_states[-1].when
-        #         qs = (
-        #             session.query(db_schema.Statistics)
-        #             .join(
-        #                 db_schema.StatisticsMeta,
-        #                 db_schema.Statistics.metadata_id == db_schema.StatisticsMeta.id,
-        #                 isouter=True,
-        #             )
-        #             .filter(db_schema.Statistics.start >= start_cutoff)
-        #             .filter(db_schema.Statistics.start < end_cutoff)
-        #         )
-        #         stats = [x.id for x in qs]
+        # Handle overlaping stats.
         #
-        #     clear_statistics(self.recorder, stats)
-        #     _LOGGER.debug(f"Cleared {len(stats)} statistics")
-        #
-        # await self.recorder.async_add_executor_job(delete_statistics)
 
-        hist_states = self.historical_states
-        if latest is not None:
-            cutoff = dtutil.utc_from_timestamp(latest["start"]) + timedelta(hours=1)
-            hist_states = [x for x in hist_states if x.dt > cutoff]
+        overwrite = True
+
+        if overwrite:
+
+            def _delete_stats_since(ts: int):
+                with tm.hass_recorder_session(self.hass) as session:
+                    return tm.delete_statistics_since(
+                        session, statistics_metadata["statistic_id"], since=ts
+                    )
+
+            deleted_statistics = await recorder.get_instance(
+                self.hass
+            ).async_add_executor_job(_delete_stats_since, hist_states[0].ts)
+
+            _LOGGER.debug(
+                f"{statistics_metadata['statistic_id']}: "
+                + f"deleted {len(deleted_statistics)} statistics"
+            )
+
+        else:
+            if latest_stats_data is not None:
+                cutoff = latest_stats_data["start"] + 60 * 60
+                hist_states = [x for x in hist_states if x.ts > cutoff]
 
         #
         # Calculate stats
         #
         statistics_data = await self.async_calculate_statistic_data(
-            hist_states, latest=latest
+            hist_states, latest=latest_stats_data
         )
 
-        # for stat in statistics_data:
-        #     tmp = dict(stat)
-        #     start_dt = dtutil.as_local(tmp.pop("start"))
-        #     _LOGGER.debug(f"new statistic: start={start_dt}, value={tmp!r}")
-
         if valid_statistic_id(self.statistic_id):
-            async_add_external_statistics(self.hass, statistics_meta, statistics_data)
+            async_add_external_statistics(
+                self.hass, statistics_metadata, statistics_data
+            )
         else:
-            async_import_statistics(self.hass, statistics_meta, statistics_data)
+            async_import_statistics(self.hass, statistics_metadata, statistics_data)
 
         return hist_states
 

@@ -1,0 +1,8 @@
+{
+  "name": "Delorian - Testing integration for historical sensors",
+  "content_in_root": false,
+  "zip_release": false,
+  "render_readme": true,
+  "persistent_directory": "local",
+  "homeassistant": "2023.1"
+}

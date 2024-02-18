@@ -1,4 +1,33 @@
+---
+files: ^(.*\.(py|json|md|sh|yaml|cfg|txt))$
+exclude: ^(\.[^/]*cache/.*|.*/_user.py|.github/logToCs.py)$
 repos:
+  - repo: https://github.com/verhovsky/pyupgrade-docs
+    rev: v0.3.0
+    hooks:
+      - id: pyupgrade-docs
+
+  - repo: https://github.com/executablebooks/mdformat
+    # Do this before other tools "fixing" the line endings
+    rev: 0.7.17
+    hooks:
+      - id: mdformat
+        name: Format Markdown
+        entry: mdformat  # Executable to run, with fixed options
+        language: python
+        types: [markdown]
+        args: [--wrap, '75', --number]
+        additional_dependencies:
+          - mdformat-toc
+          - mdformat-beautysh
+          # -mdformat-shfmt
+          # -mdformat-tables
+          - mdformat-config
+          - mdformat-black
+          - mdformat-web
+          - mdformat-gfm
+          - setuptools
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0
     hooks:
@@ -12,6 +41,10 @@ repos:
       - id: check-toml
       # - id: check-yaml
       - id: debug-statements
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: fix-byte-order-marker
+      - id: check-case-conflict
 
   - repo: https://github.com/asottile/pyupgrade
     rev: v3.15.0
@@ -20,7 +53,7 @@ repos:
         args: ['--py311-plus']
 
   - repo: https://github.com/pycqa/isort
-    rev: 5.13.0
+    rev: 5.13.2
     hooks:
       - id: isort
         args: ['--profile', 'black']
@@ -29,3 +62,80 @@ repos:
     rev: 23.12.1
     hooks:
       - id: black
+
+  - repo: https://github.com/adrienverge/yamllint.git
+    rev: v1.33.0
+    hooks:
+      - id: yamllint
+        args:
+          - --no-warnings
+          - -d
+          - '{extends: relaxed, rules: {line-length: {max: 90}}}'
+
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.15.0
+    hooks:
+      - id: pyupgrade
+        args:
+          - --py310-plus
+
+  - repo: https://github.com/Lucas-C/pre-commit-hooks-bandit
+    rev: v1.0.6
+    hooks:
+      - id: python-bandit-vulnerability-check
+
+  - repo: https://github.com/fsouza/autoflake8
+    rev: v0.4.1
+    hooks:
+      - id: autoflake8
+        args:
+          - -i
+          - -r
+          - --expand-star-imports
+          - custom_components
+
+  - repo: https://github.com/PyCQA/flake8
+    rev: 6.1.0
+    hooks:
+      - id: flake8
+        additional_dependencies:
+          # - pyproject-flake8>=0.0.1a5
+          - flake8-bugbear>=22.7.1
+          - flake8-comprehensions>=3.10.1
+          - flake8-2020>=1.7.0
+          - mccabe>=0.7.0
+          - pycodestyle>=2.9.1
+          - pyflakes>=2.5.0
+
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.2.6
+    hooks:
+      - id: codespell
+        args:
+          # - --builtin=clear,rare,informal,usage,code,names,en-GB_to_en-US
+          - --builtin=clear,rare,informal,usage,code,names
+          - --ignore-words-list=hass,master
+          - --skip="./.*"
+          - --quiet-level=2
+  - repo: https://github.com/pylint-dev/pylint
+    rev: v3.0.3
+    hooks:
+      - id: pylint
+        additional_dependencies:
+          - homeassistant-stubs
+          - sqlalchemy
+          - pyyaml
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.7.1
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - homeassistant-stubs
+          - sqlalchemy
+          - pyyaml

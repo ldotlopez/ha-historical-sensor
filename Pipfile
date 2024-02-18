@@ -6,10 +6,10 @@ name = "pypi"
 [packages]
 
 [dev-packages]
+# homeassistant-historical-sensor = {editable = true, path = "."}
 black = "*"
 build = "*"
 homeassistant = ">=2024.1.0"
-homeassistant-historical-sensor = {editable = true, path = "."}
 ipdb = "*"
 ipython = "*"
 isort = "*"

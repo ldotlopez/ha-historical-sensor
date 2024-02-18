@@ -23,9 +23,10 @@
 # Important methods include comments about code itself and reasons behind them
 #
 
-import itertools
+import math
 import statistics
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
@@ -41,6 +42,7 @@ from homeassistant_historical_sensor import (
     HistoricalState,
     PollUpdateMixin,
 )
+from homeassistant_historical_sensor.state import group_by_interval
 
 from .api import API
 from .const import DOMAIN, NAME
@@ -92,18 +94,29 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         # This functions is equivaled to the `Sensor.async_update` from
         # HomeAssistant core
         #
-        # Important: You must provide datetime with tzinfo
+        # Important: ts is in UTC
 
-        hist_states = [
+        upstream_data = self.api.fetch(
+            start=datetime.now() - timedelta(days=3), step=timedelta(minutes=15)
+        )
+
+        upstream_data_with_timestamps = [
+            (
+                dt.timestamp() if dt.tzinfo else dtutil.as_local(dt).timestamp(),
+                state,
+            )
+            for (dt, state) in upstream_data
+        ]
+
+        historical_states = [
             HistoricalState(
                 state=state,
-                dt=dtutil.as_local(dt),  # Add tzinfo, required by HistoricalSensor
+                ts=ts,
             )
-            for (dt, state) in self.api.fetch(
-                start=datetime.now() - timedelta(days=3), step=timedelta(minutes=15)
-            )
+            for (ts, state) in upstream_data_with_timestamps
         ]
-        self._attr_historical_states = hist_states
+
+        self._attr_historical_states = historical_states
 
     @property
     def statistic_id(self) -> str:
@@ -131,23 +144,17 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
 
         accumulated = latest["sum"] if latest else 0
 
-        def hour_block_for_hist_state(hist_state: HistoricalState) -> datetime:
-            # XX:00:00 states belongs to previous hour block
-            if hist_state.dt.minute == 0 and hist_state.dt.second == 0:
-                dt = hist_state.dt - timedelta(hours=1)
-                return dt.replace(minute=0, second=0, microsecond=0)
-
-            else:
-                return hist_state.dt.replace(minute=0, second=0, microsecond=0)
-
         ret = []
-        for dt, collection_it in itertools.groupby(
-            hist_states, key=hour_block_for_hist_state
+        for block_ts, collection_it in group_by_interval(
+            hist_states, granurality=60 * 60
         ):
             collection = list(collection_it)
+
             mean = statistics.mean([x.state for x in collection])
             partial_sum = sum([x.state for x in collection])
             accumulated = accumulated + partial_sum
+
+            dt = datetime.fromtimestamp(block_ts).replace(tzinfo=ZoneInfo("UTC"))
 
             ret.append(
                 StatisticData(

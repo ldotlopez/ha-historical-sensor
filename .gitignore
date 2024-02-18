@@ -1,6 +1,6 @@
 *.egg-info/
 *.pyc
-*.sublime-project
+*.sublime-workspace
 __pycache__
 dist/
 home-assistant-historical-sensor.sublime-workspace
