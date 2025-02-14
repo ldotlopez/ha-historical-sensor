@@ -8,7 +8,7 @@ name = "pypi"
 [dev-packages]
 black = "*"
 build = "*"
-homeassistant = ">=2024.1.0"
+homeassistant = ">=2025.2.0"
 homeassistant-historical-sensor = {editable = true, path = "."}
 ipdb = "*"
 ipython = "*"

@@ -260,6 +260,7 @@ class HistoricalSensor(SensorEntity):
                     states_meta_rel=state_meta,
                     last_changed_ts=ts,
                     last_updated_ts=ts,
+                    last_reported_ts=ts,
                     old_state=db_states[idx - 1] if idx else latest,
                     state=_stringify_state(self, hist_state.state),
                     state_attributes=state_attributes,
