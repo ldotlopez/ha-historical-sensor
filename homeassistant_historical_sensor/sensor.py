@@ -384,6 +384,7 @@ class HistoricalSensor(SensorEntity):
             name=f"{self.name} Statistics",
             source=source,
             statistic_id=self.statistic_id,
+            unit_class=None,
             unit_of_measurement=self.unit_of_measurement,
         )
 
