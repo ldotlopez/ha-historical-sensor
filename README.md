@@ -13,31 +13,48 @@
        alt="Buy Me A Coffee" style="height: 30px !important;width: 105px !important;" >
 </a>
 
-Feed historical data into Home Assistant database.
+Feed historical statistics into Home Assistant database.
 
 HomeAssistant architecture is built around polling (or pushing) data
 from devices, or data providers, in "real-time". Some data sources
 (e.g, energy, water or gas providers) can't be polled in real-time or
 readings are not accurate. However reading historical data, like last
-month consumption, it is possible and accurate. This module adds support
+month consumption, is possible and accurate. This module adds support
 to this.
 
-This module uses the `recorder` component and custom state creation to
-store states "from the past".
+This module uses the `recorder` component and Home Assistant's official
+statistics API to import historical statistics data.
 
 Current projects using this module:
 
 - [ideenergy energy monitor](https://github.com/ldotlopez/ha-ideenergy)
 - [AuroraPlusHA](https://github.com/LeighCurran/AuroraPlusHA)
 
+## Important: v3.0 Breaking Changes
+
+**Version 3.0 removes state writing entirely.** Historical sensors now only write statistics, not individual states. This means:
+
+✅ **What still works:**
+- Energy dashboard integration
+- Long-term statistics and trends
+- Hourly/daily/monthly aggregated data
+- All existing integration code (minimal changes needed)
+
+❌ **What no longer works:**
+- Individual state points in entity history graphs
+- Granular state visualization in the UI
+
+**Why this change?** Directly manipulating Home Assistant's recorder database was extremely complex, fragile, and error-prone. The code for maintaining state chains, handling schema changes, and managing database integrity was unsustainable. Statistics provide everything needed for 99% of use cases while using Home Assistant's official, stable API.
+
+See [https://github.com/ldotlopez/ha-historical-sensor/issues/18] for detailed explanation and migration guide.
+
 ## How to implement a historical sensor
 
 💡 Check the delorian test integration in this repository
 
 1. Import home_assistant_historical_sensor and define your sensor.
-   _⚠️ **Don't** set the SensorEntity.state property. See FAQ below_
-
-```
+   _⚠️ **Don't** set the SensorEntity.state_class property. See FAQ below_
+```python
 from homeassistant_historical_sensor import (
     HistoricalSensor, HistoricalState, PollUpdateMixin,
 )
@@ -47,170 +64,187 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
     ...
 ```
 
-
-2. Define the `SensorEntity.async_update_historical` method and save your
+2. Define the `async_update_historical` method and save your
 historical states into the `HistoricalSensor._attr_historical_states`
 attribute.
-
-```
-   async def async_update_historical(self):
-        self._attr_historical_states = [
-            HistoricalState(state=x.state, dt=x.when) for x in api.fetch()
-        ]
-```
-
-3. Done Besides other Home Assistant considerations, this is everything
-you need to implement data importing into Home Assistant
-
-## How to add statistics to your Historical Sensor
-
-Generating statistics it is not an easy generalizable job,
-HistoricalSensor provides some support and helpers but you have to write
-some code.
-
-1. Define the `statistic_id` property for your sensor. For simplicity, you
-can use the entity_id.  _⚠️ **Don't** set the SensorEntity.state_class
-property. See FAQ below_
-
-```
-@property def statistic_id(self) -> str:
-    return self.entity_id
+```python
+async def async_update_historical(self):
+    self._attr_historical_states = [
+        HistoricalState(state=x.state, timestamp=x.when.timestamp()) 
+        for x in await api.fetch()
+    ]
 ```
 
+Note: `timestamp` expects a Unix timestamp (float).
 
-2. Define the `get_statistic_metadata` method for your sensor.
-
-It's recommended to use just "sum" or "mean" statistics, not both,
-the one which applies to your sensor. Both are shown here just as example.
-
-```
+3. Define the `get_statistic_metadata` method for your sensor.
+```python
 def get_statistic_metadata(self) -> StatisticMetaData:
-    meta = super().get_statistic_metadata() meta["has_sum"] = True
-    meta["has_mean"] = True
-
+    meta = super().get_statistic_metadata()
+    meta["has_sum"] = True  # For counters (energy, water, gas)
+    # OR
+    meta["has_mean"] = True  # For measurements (temperature, power)
+    
     return meta
 ```
 
-3. Define the `async_calculate_statistic_data` method for your sensor.
+4. Define the `async_calculate_statistic_data` method for your sensor.
 
-(Check the delorian integration for a full example)
-
-``` async def async_calculate_statistic_data(
-    self, hist_states: list[HistoricalState], *, latest: StatisticsRow |
-    None = None,
+This method calculates statistics from your historical states. Check the delorian integration for a full example.
+```python
+async def async_calculate_statistic_data(
+    self, 
+    hist_states: list[HistoricalState], 
+    *, 
+    latest: StatisticsRow | None = None,
 ) -> list[StatisticData]:
-   ...
+    # Calculate hourly statistics from your states
+    # Return list of StatisticData with start, state, sum/mean
+    ...
 ```
+
+5. Done! Besides other Home Assistant considerations, this is everything
+you need to implement statistics importing into Home Assistant.
 
 ## Technical details
 
-Q. **How it is accomplished?.**
+**Q. How does it work?**
 
-A. It's a relatively easy answer but needs to be broken into some pieces:
+A. The architecture is straightforward:
 
-  1. A new property for sensors: `_attr_historical_states`. This property
-  holds a list of `HistoricalState`s which are, basically, a `state`
-  value and a `dt` `datetime`  (with tzinfo), so… the data we want.
+  1. **`_attr_historical_states` property**: Holds a list of `HistoricalState` objects, each containing a `state` value and a `timestamp` (Unix timestamp as float).
 
-  2. A new hook for sensor: `async_update_historical`. This method is
-  responsible to update `_attr_historical_states` property.
-     **This is the only function that needs to be implemented**.
+  2. **`async_update_historical` hook**: Your implementation updates `_attr_historical_states` with data from your source. **This is the only method you must implement.**
 
-  3. A new method, implemented by `HistoricalSensor` class:
-  `async_write_ha_historical_states`. This method handles the details of
-  creating tweaked states in the past and write them into the database
-  using the `recorder` component of Home Assistant core.
+  3. **`async_calculate_statistic_data` method**: Calculates statistics (sum/mean/min/max) from historical states. **You must implement this to generate statistics.**
 
-Q. **What is `PollUpdateMixin` and why I need to inherit from it?**
+  4. **`async_write_ha_historical_states` method**: Implemented by `HistoricalSensor`, handles writing statistics to Home Assistant using the official `async_import_statistics` API.
+
+**Q. What happened to state writing?**
+
+A. **Removed in v3.0.** Writing states directly to the database was extremely complex and fragile. The module now only writes statistics using Home Assistant's official API, which is:
+- Simpler and more maintainable
+- Forward-compatible with HA updates
+- Sufficient for energy dashboards and long-term trends
+
+Individual state points no longer appear in entity history graphs, but statistics work perfectly for energy monitoring and trend analysis.
+
+**Q. What is `PollUpdateMixin` and why do I need to inherit from it?**
 
 A. Home Assistant sensors can use [the poll or the push model](https://developers.home-assistant.io/docs/integration_fetching_data/#push-vs-poll) to update data.
 
-Poll mode does not mix well with historical data, causes blanks and empty points in history and graphs. Because of that, historical sensors use a false push model: historical sensors are never updated by them self.
+Historical sensors use a false push model: they are never updated by themselves (the `state` property always returns `STATE_UNKNOWN`).
 
-`PollUpdateMixin` solves this and automatically provides the poll functionality back without any code. The sensor will be updated at startup and every hour. This interval can be configured via the `UPDATE_INTERVAL` class attribute.
+`PollUpdateMixin` provides automatic periodic updates without any code. The sensor will be updated at startup and every hour. This interval can be configured via the `UPDATE_INTERVAL` class attribute.
 
-Q. **Why it is recommended to DON'T set the `state` and the `state_class`
-properties?**
+**Q. Why should I NOT set the `state_class` property?**
 
-A. Because it messes up graphs and statistics
+A. Because it causes Home Assistant to calculate its own statistics from the sensor's current state, which:
+- Doesn't make sense for historical data
+- Creates incorrect/duplicate statistics
+- Conflicts with your manual statistics calculations
 
-* By setting the `state` attr you are telling Home Assistant that
-you have a current state, which is not true if you are importing data
-from the past. You may think that the last state (now - X hours) may
-be the current `state` but it is not, in X hours you will import new
-data and that point may have a different value. Also messes graphs with
-inconsistent data points.  * Setting `state_class` causes Home Assistant
-to calculate statistics data which is not what you want since you are
-working with historical data and not present data. Statistical data
-will be incorrect if any is calculated. Historical sensors have helper
-functions to deal with statistics
+Historical sensors provide statistics through `async_calculate_statistic_data`, not through `state_class`.
 
-**Q. Why my sensor is not shown in the energy panel configuration?**
+**Q. Why is my sensor in "Unknown" state?**
 
-A. Energy dashboard doesn't use sensors, it uses statistics (it is a
-bit confusing, yes). Statistics usually have the same name (id) as the
-source sensor, hence the confusion.
+A. This is expected and correct. Historical sensors don't provide current state—they only import past statistics. The sensor will always show "Unknown" as its state because:
+- The last historical data point (from hours/days ago) is NOT the current state
+- The current state is genuinely unknown
+- Only statistics are meaningful for this type of sensor
 
-If your sensor doesn't show up in energy panel options it is because it
-is not generating statistics. For a standard sensor Home Assistant does
-that job but HistoricalSensor it is not.
+**Q. Why doesn't my sensor show up in the energy panel?**
 
-HistoricalSensor basically inserts states into the database, using
-almost raw SQL INSERT stamens, so any internal process of HomeAssistant
-doesn't apply.
+A. Energy dashboard uses statistics, not sensor states. If your sensor doesn't appear:
 
-See "How to implement statistics about".
+1. Make sure you've implemented `get_statistic_metadata()` with `has_sum=True`
+2. Make sure you've implemented `async_calculate_statistic_data()`
+3. Trigger an update to import data and generate statistics
+4. Statistics will appear after the first successful import
 
-Statistics will be calculated once new historical data comes in, then
-it will show up in the energy panel.
+**Q. Can I provide BOTH current state AND historical statistics?**
 
-**Q. I can't calculate energy, water o gas costs**
+A. You need two separate sensors:
+- One regular sensor for current state (with `state_class`)
+- One HistoricalSensor for importing historical statistics
 
-A. Actually it can't be done.
+If you're using the [data coordinator pattern](https://developers.home-assistant.io/docs/integration_fetching_data/#coordinated-single-api-poll-for-data-for-all-entities), this should be straightforward.
 
-Maybe the energy [websocket
-API](https://github.com/home-assistant/core/blob/master/homeassistant/components/energy/websocket_api.py)
-can be useful
+**Q. Can I calculate energy/water/gas costs?**
 
+A. Cost calculation must be done in Home Assistant's Energy dashboard configuration, not in the sensor itself. The Energy dashboard has built-in cost calculation features.
 
-**Q. Why is my historical sensor in an "undefined" state?.**
+The energy [websocket API](https://github.com/home-assistant/core/blob/master/homeassistant/components/energy/websocket_api.py) may be useful for advanced use cases.
 
-A. Historical sensors don't provide the current state. Keep in mind
-that the last state (from some hours ago) is NOT the current state. The
-current state is unknown.
+**Q. Do I need to worry about overlapping data when re-importing?**
 
-**Q. I want to provide current state AND historical data**
+A. No. The library handles this automatically:
+- New statistics are only added if they're newer than the last imported statistic
+- You can safely re-run imports without creating duplicates
 
-A. You need to implement two sensors: one for the current state and
-another one for historical data.
+## Migration from v2.x to v3.x
 
-If you are following the [data
-coordinator](https://developers.home-assistant.io/docs/integration_fetching_data/#coordinated-single-api-poll-for-data-for-all-entities)
-pattern it should be straightforward
+### Breaking Changes
 
-### External vs. internal statistics
+1. **`HistoricalState` parameter renamed**: `ts` → `timestamp` (but `ts` still works for backward compatibility)
 
-Due to the way the data is inserted a posteriori into the recorder, Home
-Assistant cannot calculate statistics on historical states automatically.
-This is particularly problematic for the Energy dashboard, which relies
-on these statistics.
+2. **`group_by_interval` parameter fixed**: `granurality` → `granularity` (typo fix)
 
-It is possible to provide those statistics by
+3. **Minimum Home Assistant version**: Now requires HA >= 2025.12.0
 
-  1. Providing a `get_statistic_metadata` method returning a dictionary of
-     supported statistics. Generally, the sum is sufficient for the
-     energy dashboard, so setting `has_sum` to True is all it takes
+4. **`statistic_id` property removed**: Statistics now always use `entity_id`
 
-  2. Providing an `async_calculate_statistic_data` method to do the
-  calculation.
+5. **No more state writing**: Only statistics are written to the database
 
-     It will take a list of `HistoricalState`, and the latest
-     `homeassistant.components.recorder.statistics.StatisticsRow`
-     as arguments, and should return an array of
-     `homeassistant.components.recorder.models.StatisticData` (with
-     `start`, `state` and the statistics, e.g., `sum`).
+### What You Need to Update
+```python
+# Before (v2.x)
+HistoricalState(state=value, ts=timestamp)
 
-### Importing CSV files
+# After (v3.x) - both work, but timestamp is preferred
+HistoricalState(state=value, timestamp=timestamp)
+HistoricalState(state=value, ts=timestamp)  # Still supported
+
+# Before (v2.x)
+group_by_interval(states, granurality=3600)
+
+# After (v3.x)
+group_by_interval(states, granularity=3600)
+```
+
+### What Stays the Same
+
+✅ The integration API is unchanged  
+✅ `async_update_historical()` works the same  
+✅ `async_calculate_statistic_data()` works the same  
+✅ `get_statistic_metadata()` works the same  
+✅ Energy dashboard integration works the same  
+
+### What's Removed (probably not relevant to you)
+
+- All internal state writing methods
+- Direct database manipulation utilities
+- `statistic_id` property (uses `entity_id` now)
+- `patches.py` module
+
+## Helper Functions
+
+### `group_by_interval`
+
+Groups historical states into time intervals (typically hourly) for statistics calculation:
+```python
+from homeassistant_historical_sensor import group_by_interval
+
+for block_timestamp, states_in_hour in group_by_interval(
+    hist_states, 
+    granularity=60 * 60  # 1 hour in seconds
+):
+    states = list(states_in_hour)
+    # Calculate statistics for this hour
+    ...
+```
+
+## Importing CSV files
 
 To be implemented: [https://github.com/ldotlopez/ha-historical-sensor/issues/3](https://github.com/ldotlopez/ha-historical-sensor/issues/3)
 
