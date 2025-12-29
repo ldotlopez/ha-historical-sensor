@@ -19,6 +19,7 @@
         }
     ],
     "settings": {
+        /*
         "python_interpreter": "${project_path}/.venv/bin/python",
 
         "sublack.black_command": "${project_path}/.venv/bin/black",
@@ -35,6 +36,6 @@
 
         "SublimeLinter.linters.pycodestyle.executable": "${project_path}/.venv/bin/pycodestyle",
         "SublimeLinter.linters.pycodestyle.disable": true,
+        */
     }
-
 }

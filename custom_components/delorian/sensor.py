@@ -23,7 +23,6 @@
 # Important methods include comments about code itself and reasons behind them
 #
 
-import math
 import statistics
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -41,8 +40,8 @@ from homeassistant_historical_sensor import (
     HistoricalSensor,
     HistoricalState,
     PollUpdateMixin,
+    group_by_interval,
 )
-from homeassistant_historical_sensor.state import group_by_interval
 
 from .api import API
 from .const import DOMAIN, NAME
@@ -66,15 +65,15 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         self._attr_has_entity_name = True
         self._attr_name = NAME
 
-        self._attr_unique_id = NAME
-        self._attr_entity_id = NAME
+        self._attr_unique_id = f"{PLATFORM}.{NAME}"
+        self._attr_entity_id = f"{PLATFORM}.{NAME}"
 
         self._attr_entity_registry_enabled_default = True
         self._attr_state = None
 
         # Define whatever you are
-        self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
         self._attr_device_class = SensorDeviceClass.ENERGY
+        self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
 
         # We DON'T opt-in for statistics (don't set state_class). Why?
         #
@@ -96,7 +95,7 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         #
         # Important: ts is in UTC
 
-        upstream_data = self.api.fetch(
+        upstream_data = await self.api.fetch(
             start=datetime.now() - timedelta(days=3), step=timedelta(minutes=15)
         )
 
@@ -111,16 +110,12 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         historical_states = [
             HistoricalState(
                 state=state,
-                ts=ts,
+                timestamp=ts,
             )
             for (ts, state) in upstream_data_with_timestamps
         ]
 
         self._attr_historical_states = historical_states
-
-    @property
-    def statistic_id(self) -> str:
-        return self.entity_id
 
     def get_statistic_metadata(self) -> StatisticMetaData:
         #
@@ -146,7 +141,7 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
 
         ret = []
         for block_ts, collection_it in group_by_interval(
-            hist_states, granurality=60 * 60
+            hist_states, granularity=60 * 60
         ):
             collection = list(collection_it)
 

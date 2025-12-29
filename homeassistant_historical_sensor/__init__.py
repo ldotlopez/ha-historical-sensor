@@ -16,29 +16,14 @@
 # USA.
 
 
-import logging
-
-from homeassistant.const import MAJOR_VERSION, MINOR_VERSION
-from homeassistant.const import __version__ as HA_FULL_VERSION
-
-from .consts import MIN_REQ_MAJOR_VERSION, MIN_REQ_MINOR_VERSION
 from .sensor import HistoricalSensor, PollUpdateMixin
-from .state import HistoricalState
+from .timemachine import HistoricalState, group_by_interval, hass_check_version
 
-LOGGER = logging.getLogger(__name__)
-
-min_ver = (MIN_REQ_MAJOR_VERSION * 12) + MIN_REQ_MINOR_VERSION
-cur_ver = MAJOR_VERSION * 12 + MINOR_VERSION
-if cur_ver < min_ver:
-    msg = (
-        f"Running HomeAssistant {HA_FULL_VERSION}, "
-        f"Minimum required version >={MIN_REQ_MAJOR_VERSION}.{MIN_REQ_MINOR_VERSION}.0"
-    )
-    LOGGER.debug(msg)
-    raise SystemError(msg)
+hass_check_version()
 
 __all__ = [
     "HistoricalSensor",
     "HistoricalState",
     "PollUpdateMixin",
+    "group_by_interval",
 ]
