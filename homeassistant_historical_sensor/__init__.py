@@ -17,7 +17,12 @@
 
 
 from .sensor import HistoricalSensor, PollUpdateMixin
-from .timemachine import HistoricalState, group_by_interval, hass_check_version
+from .timemachine import (
+    HistoricalState,
+    group_by_interval,
+    hass_check_version,
+    hass_get_last_statistic,
+)
 
 hass_check_version()
 
@@ -26,4 +31,5 @@ __all__ = [
     "HistoricalState",
     "PollUpdateMixin",
     "group_by_interval",
+    "hass_get_last_statistic",
 ]
