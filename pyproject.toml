@@ -3,6 +3,9 @@
 [project]
 name = "homeassistant-historical-sensor"
 version = "2.0.0"
+dependencies = [
+    "importlib-metadata; python_version >= '3.11'",
+]
 authors = [
   {name = "Luis López", email = "luis@cuarentaydos.com"},
 ]

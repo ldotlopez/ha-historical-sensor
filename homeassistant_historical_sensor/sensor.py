@@ -35,6 +35,7 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.util import dt as dtutil
 
+from .consts import DELAY_ON_MISSING_STATES_METADATA
 from .patches import _build_attributes, _stringify_state
 from .recorderutil import (
     delete_entity_invalid_states,
@@ -130,11 +131,31 @@ class HistoricalSensor(SensorEntity):
         """
         raise NotImplementedError()
 
-    async def async_write_ha_historical_states(self):
+    async def _schedule_on_missing_states_metadata(self, fn) -> bool:
+        metadata_id = await hass_get_entity_states_metadata_id(self.hass, self)
+        if metadata_id is not None:
+            return False
+
+        _LOGGER.debug(
+            f"{self.entity_id} not yet fully ready, StatesMeta object is not ready."
+            + f"Retry in {DELAY_ON_MISSING_STATES_METADATA} seconds"
+        )
+
+        async_call_later(self.hass, DELAY_ON_MISSING_STATES_METADATA, fn)
+        return True
+
+    async def async_write_ha_historical_states(self, _=None):
         """async_write_ha_historical_states()
 
         This method writes `self.historical_states` into database
         """
+
+        if await self._schedule_on_missing_states_metadata(
+            self.async_write_ha_historical_states
+        ):
+            return
+
+        _LOGGER.debug(f"{self.entity_id} states medata ready")
 
         hist_states = self.historical_states
         if any([True for x in hist_states if x.dt.tzinfo is None]):
@@ -151,21 +172,21 @@ class HistoricalSensor(SensorEntity):
             return
 
         # Write states
-        n = len(await self._async_write_recorder_states(hist_states))
+        n = len(await self._async_write_states(hist_states))
         _LOGGER.debug(f"{self.entity_id}: {n} states written into the database")
 
         # Write statistics
-        n = len(await self._async_write_statistic_data(hist_states))
+        n = len(await self._async_write_statistics(hist_states))
         _LOGGER.debug(f"{self.entity_id}: {n} statistics points written into database")
 
-    async def _async_write_recorder_states(
+    async def _async_write_states(
         self, hist_states: list[HistoricalState]
     ) -> list[HistoricalState]:
         return await recorder.get_instance(self.hass).async_add_executor_job(
-            self._write_recorder_states, hist_states
+            self._recorder_write_states, hist_states
         )
 
-    def _write_recorder_states(
+    def _recorder_write_states(
         self, hist_states: list[HistoricalState]
     ) -> list[HistoricalState]:
         with hass_recorder_session(self.hass) as session:
@@ -276,7 +297,7 @@ class HistoricalSensor(SensorEntity):
 
             return hist_states
 
-    async def _async_write_statistic_data(
+    async def _async_write_statistics(
         self, hist_states: list[HistoricalState]
     ) -> list[HistoricalState]:
         if self.statistic_id is None:
@@ -412,14 +433,5 @@ class PollUpdateMixin(HistoricalSensor):
             self._remove_time_tracker_fn()
 
     async def _async_historical_handle_update(self, _: datetime | None = None) -> None:
-        metadata_id = await hass_get_entity_states_metadata_id(self.hass, self)
-        if metadata_id is None:
-            retry_in = timedelta(seconds=30 * 1.05)
-            _LOGGER.debug(
-                f"{self.entity_id} not yet fully ready, StatesMeta object is not ready. Retry in {retry_in}"
-            )
-            async_call_later(self.hass, retry_in, self._async_historical_handle_update)
-            return
-
         await self.async_update_historical()
         await self.async_write_ha_historical_states()
