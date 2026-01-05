@@ -24,10 +24,9 @@ from typing import Any
 
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
 from homeassistant.components.recorder.statistics import (
-    async_add_external_statistics,
+    StatisticMeanType,
+    StatisticsRow,
     async_import_statistics,
-    split_statistic_id,
-    valid_statistic_id,
 )
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.const import STATE_UNKNOWN
@@ -35,7 +34,7 @@ from homeassistant.helpers.event import async_track_time_interval
 
 from . import timemachine as tm
 
-_LOGGER = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 # You must know:
@@ -71,7 +70,7 @@ class HistoricalSensor(SensorEntity):
 
     @property
     def state(self) -> Any:
-        # Better report unavailable than anything
+        # Better report unknown than anything
         #
         # Another aproach is to return data from historical entity, but causes
         # wrong results. Keep here for reference.
@@ -85,7 +84,7 @@ class HistoricalSensor(SensorEntity):
         return STATE_UNKNOWN
 
     @property
-    def historical_states(self):
+    def historical_states(self) -> list[tm.HistoricalState]:
         if hasattr(self, "_attr_historical_states"):
             return self._attr_historical_states
 
@@ -114,34 +113,38 @@ class HistoricalSensor(SensorEntity):
         #
 
         if getattr(self, "state_class", None):
-            _LOGGER.warning(
+            LOGGER.warning(
                 f"{self.entity_id}: state_class attribute is set. "
                 + "This is NOT supported, your statistics will be messed sooner or later"
             )
 
-    async def async_write_ha_historical_states(self, _=None):
-        """async_write_ha_historical_states()
+    async def async_write_historical(self):
+        """async_write_historical()
 
         This method writes `self.historical_states` into database
         """
 
-        _LOGGER.debug(f"{self.entity_id} states meta ready")
+        if not self.historical_states:
+            LOGGER.warning(f"{self.entity_id}: no historical states available")
+            return
 
-        # # Write statistics
-        n = len(await self._async_write_statistics(self.historical_states))
-        _LOGGER.debug(f"{self.entity_id}: {n} statistics points written into database")
+        LOGGER.debug(
+            f"{self.entity_id}: {len(self.historical_states)} historical states present"
+        )
+
+        # Write statistics
+        await self._async_write_statistics(self.historical_states)
 
     async def _async_write_statistics(
         self, hist_states: list[tm.HistoricalState]
-    ) -> list[tm.HistoricalState]:
+    ) -> list[StatisticData]:
         if not hist_states:
             return []
 
-        statistics_metadata = self.get_statistic_metadata()
-
         hist_states = list(sorted(hist_states, key=lambda x: x.timestamp))
 
-        latest_stats_data = await tm.hass_get_last_statistic(
+        statistics_metadata = self.get_statistic_metadata()
+        latest_statistic_data = await tm.hass_get_last_statistic(
             self.hass, statistics_metadata
         )
 
@@ -149,36 +152,44 @@ class HistoricalSensor(SensorEntity):
         # Handle overlaping stats.
         #
 
-        if latest_stats_data is not None:
-            cutoff = latest_stats_data["start"] + 60 * 60
+        if latest_statistic_data is not None:
+            cutoff = latest_statistic_data["start"] + 60 * 60
             hist_states = [x for x in hist_states if x.timestamp > cutoff]
 
         #
         # Calculate stats
         #
         statistics_data = await self.async_calculate_statistic_data(
-            hist_states, latest=latest_stats_data
+            hist_states, latest=latest_statistic_data
         )
-
-        _LOGGER.info(f"adding statistics with meta={statistics_metadata}")
         async_import_statistics(self.hass, statistics_metadata, statistics_data)
 
-        return hist_states
+        n_statistics_data = len(statistics_data)
+        LOGGER.info(f"{self.entity_id}: added {n_statistics_data} statistics points")
+        LOGGER.info(f"{self.entity_id}:      start={latest_statistic_data}")
+        LOGGER.info(f"{self.entity_id}:      meta={statistics_metadata}")
+
+        return statistics_data
 
     def get_statistic_metadata(self) -> StatisticMetaData:
         metadata = StatisticMetaData(
-            has_mean=False,
+            # has_mean=False,
             has_sum=False,
+            mean_type=StatisticMeanType.NONE,
             name=f"{self.name} Statistics",
             source="recorder",
             statistic_id=self.entity_id,
+            unit_class=None,
             unit_of_measurement=self.unit_of_measurement,
         )
 
         return metadata
 
     async def async_calculate_statistic_data(
-        self, hist_states: list[tm.HistoricalState], *, latest: dict | None = None
+        self,
+        hist_states: list[tm.HistoricalState],
+        *,
+        latest: StatisticsRow | None = None,
     ) -> list[StatisticData]:
         raise NotImplementedError()
 
@@ -209,7 +220,7 @@ class PollUpdateMixin(HistoricalSensor):
 
         await super().async_added_to_hass()
 
-        _LOGGER.debug(f"{self.entity_id}: added to hass, do initial update")
+        LOGGER.debug(f"{self.entity_id}: added to hass, do initial update")
         await self._async_historical_handle_update()
         self._remove_time_tracker_fn = async_track_time_interval(
             self.hass,
@@ -217,7 +228,7 @@ class PollUpdateMixin(HistoricalSensor):
             self.UPDATE_INTERVAL,
         )
 
-        _LOGGER.debug(
+        LOGGER.debug(
             f"{self.entity_id}: "
             + f"updating each {self.UPDATE_INTERVAL.total_seconds()} seconds "
         )
@@ -228,4 +239,4 @@ class PollUpdateMixin(HistoricalSensor):
 
     async def _async_historical_handle_update(self, _: datetime | None = None) -> None:
         await self.async_update_historical()
-        await self.async_write_ha_historical_states()
+        await self.async_write_historical()

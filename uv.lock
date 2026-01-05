@@ -1274,10 +1274,10 @@ wheels = [
 
 [[package]]
 name = "homeassistant-historical-sensor"
-version = "3.0.0a1"
+version = "3.0.0a3"
 source = { editable = "." }
 dependencies = [
-    { name = "importlib-metadata", marker = "python_full_version >= '3.14'" },
+    { name = "importlib-metadata" },
 ]
 
 [package.dev-dependencies]
@@ -1290,7 +1290,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "importlib-metadata", marker = "python_full_version >= '3.14'" }]
+requires-dist = [{ name = "importlib-metadata", marker = "python_full_version >= '3.13'" }]
 
 [package.metadata.requires-dev]
 dev = [
