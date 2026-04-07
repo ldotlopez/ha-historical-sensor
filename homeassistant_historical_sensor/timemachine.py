@@ -18,8 +18,6 @@ from homeassistant.const import MAJOR_VERSION, MINOR_VERSION
 from homeassistant.const import __version__ as HA_FULL_VERSION
 from homeassistant.core import HomeAssistant
 
-from .consts import MIN_REQ_MAJOR_VERSION, MIN_REQ_MINOR_VERSION
-
 LOGGER = logging.getLogger(__name__)
 
 
@@ -53,18 +51,6 @@ def blockize(
     if border_in_previous_block and leftover == 0:
         block = block - 1
     return block * granularity
-
-
-def hass_check_version() -> None:
-    min_ver = (MIN_REQ_MAJOR_VERSION * 12) + MIN_REQ_MINOR_VERSION
-    cur_ver = MAJOR_VERSION * 12 + MINOR_VERSION
-    if cur_ver < min_ver:
-        msg = (
-            f"Running HomeAssistant {HA_FULL_VERSION}, "
-            f"Minimum required version >={MIN_REQ_MAJOR_VERSION}.{MIN_REQ_MINOR_VERSION}.0"
-        )
-        LOGGER.debug(msg)
-        raise SystemError(msg)
 
 
 async def hass_get_last_statistic(

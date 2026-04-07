@@ -166,11 +166,11 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_devices: AddEntitiesCallback,
+    async_add_entities: AddEntitiesCallback,
     discovery_info: DiscoveryInfoType | None = None,  # noqa DiscoveryInfoType | None
 ):
     device_info = hass.data[DOMAIN][config_entry.entry_id]
     sensors = [
         Sensor(config_entry=config_entry, device_info=device_info),
     ]
-    async_add_devices(sensors)
+    async_add_entities(sensors)
