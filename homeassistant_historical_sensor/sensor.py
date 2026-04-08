@@ -37,12 +37,6 @@ from . import timemachine as tm
 LOGGER = logging.getLogger(__name__)
 
 
-# You must know:
-# * DB keeps datetime object as utc
-# * Each time hass is started a new record is created, that record can be 'unknow'
-#   or 'unavailable'
-
-
 class HistoricalSensor(SensorEntity):
     """The HistoricalSensor class provides:
 
@@ -104,19 +98,20 @@ class HistoricalSensor(SensorEntity):
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
 
-        #
-        # Setting state_class enables HomeAssistant to run statistic calculations on
-        # this sensor.
-        # We handle our own statistics and can be different from the Home Assisstant
-        # ones (also, we don't fully understand some internal procedures of
-        # HomeAssistant)
-        #
+        # unit_class and unit_class are required in StatisticsMetadata in
+        # order to generate statistics.
 
-        if getattr(self, "state_class", None):
-            LOGGER.warning(
-                f"{self.entity_id}: state_class attribute is set. "
-                + "This is NOT supported, your statistics will be messed sooner or later"
+        statistics_metadata = self.get_statistic_metadata()
+        if not statistics_metadata.get("unit_class") or not statistics_metadata.get(
+            "unit_of_measurement"
+        ):
+            msg = (
+                f"{self.entity_id}: incomplete statistic metadata."
+                + " Required fields: unit_class and unit_of_measurement."
+                + " Fix your get_statistic_metadata() method."
             )
+            LOGGER.error(msg)
+            raise ValueError(msg)
 
     async def async_write_historical(self):
         """async_write_historical()
@@ -180,7 +175,7 @@ class HistoricalSensor(SensorEntity):
             source=self.entity_id.split(".", 1)[0],
             statistic_id=self.entity_id.replace(".", ":", 1),
             unit_class=None,
-            unit_of_measurement=self.unit_of_measurement,
+            unit_of_measurement=None,
         )
 
         return metadata

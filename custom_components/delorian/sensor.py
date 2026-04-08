@@ -28,7 +28,11 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant
@@ -47,6 +51,7 @@ from .api import API
 from .const import DOMAIN, NAME
 
 PLATFORM = "sensor"
+UNIT_CLASS_ENERGY = "energy"
 
 
 class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
@@ -69,19 +74,14 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         self._attr_entity_id = f"{PLATFORM}.{NAME}"
 
         self._attr_entity_registry_enabled_default = True
+        self._attr_entity_registry_visible_default = True
         self._attr_state = None
 
-        # Define whatever you are
-        self._attr_device_class = SensorDeviceClass.ENERGY
-        self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+        # self._attr_device_info = device_info
 
-        # We DON'T opt-in for statistics (don't set state_class). Why?
-        #
-        # Those statistics are generated from a real sensor, this sensor, but we don't
-        # want that hass try to do anything with those statistics because we
-        # (HistoricalSensor) handle generation and importing
-        #
-        # self._attr_state_class = SensorStateClass.MEASUREMENT
+        # Define whatever you are
+        # self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+        # self._attr_device_class = SensorDeviceClass.ENERGY
 
         self.api = API()
 
@@ -126,7 +126,8 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         meta = super().get_statistic_metadata()
         meta["has_sum"] = True
         meta["has_mean"] = True
-
+        meta["unit_class"] = UNIT_CLASS_ENERGY
+        meta["unit_of_measurement"] = UnitOfEnergy.KILO_WATT_HOUR
         return meta
 
     async def async_calculate_statistic_data(
