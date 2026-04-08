@@ -26,7 +26,7 @@ from homeassistant.components.recorder.models import StatisticData, StatisticMet
 from homeassistant.components.recorder.statistics import (
     StatisticMeanType,
     StatisticsRow,
-    async_import_statistics,
+    async_add_external_statistics,
 )
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.const import STATE_UNKNOWN
@@ -162,7 +162,7 @@ class HistoricalSensor(SensorEntity):
         statistics_data = await self.async_calculate_statistic_data(
             hist_states, latest=latest_statistic_data
         )
-        async_import_statistics(self.hass, statistics_metadata, statistics_data)
+        async_add_external_statistics(self.hass, statistics_metadata, statistics_data)
 
         n_statistics_data = len(statistics_data)
         LOGGER.info(f"{self.entity_id}: added {n_statistics_data} statistics points")
@@ -177,8 +177,8 @@ class HistoricalSensor(SensorEntity):
             has_sum=False,
             mean_type=StatisticMeanType.NONE,
             name=f"{self.name} Statistics",
-            source="recorder",
-            statistic_id=self.entity_id,
+            source=self.entity_id.split(".", 1)[0],
+            statistic_id=self.entity_id.replace(".", ":", 1),
             unit_class=None,
             unit_of_measurement=self.unit_of_measurement,
         )
