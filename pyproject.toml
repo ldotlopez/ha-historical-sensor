@@ -2,7 +2,7 @@
 
 [project]
 name = "homeassistant-historical-sensor"
-version = "3.0.0a3"
+version = "3.0.0a4"
 dependencies = [
     "importlib-metadata; python_version >= '3.14'",
 ]
