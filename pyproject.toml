@@ -4,7 +4,7 @@
 name = "homeassistant-historical-sensor"
 version = "3.0.0a3"
 dependencies = [
-    "importlib-metadata; python_version >= '3.13'",
+    "importlib-metadata; python_version >= '3.14'",
 ]
 authors = [
   {name = "Luis López", email = "luis@cuarentaydos.com"},
@@ -16,7 +16,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
 ]
-requires-python = ">=3.13.2"
+requires-python = ">=3.14"
 
 [project.urls]
 Homepage = "https://github.com/ldotlopez/ha-historical-sensor"
@@ -34,25 +34,23 @@ build-backend = "setuptools.build_meta"
 universal = 1
 
 [tool.black]
-target-version = ['py313']
+target-version = ['py314']
 
 [tool.isort]
 profile = "black"
 
-[tool.mypy]
-files = ['homeassistant_historical_sensor']
-
 [tool.pyupgrade]
-addopts = "--py313-plus"
+addopts = "--py314-plus"
 
 [tool.setuptools]
 packages = ["homeassistant_historical_sensor"]
 
 [dependency-groups]
 dev = [
-    "homeassistant>=2025.12.0",
+    "black>=26.3.1",
+    "homeassistant>=2026.2.3",
     "ipdb>=0.13.13",
     "ipython>=9.8.0",
     "pre-commit>=4.5.1",
-    "turbojpeg>=0.0.2",
+    "pyupgrade>=3.21.2",
 ]
