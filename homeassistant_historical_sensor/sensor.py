@@ -18,8 +18,7 @@
 
 import logging
 from abc import abstractmethod
-from datetime import datetime, timedelta
-from functools import cached_property
+from datetime import timedelta
 from typing import Any
 
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
@@ -32,18 +31,20 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.const import STATE_UNKNOWN
 from homeassistant.helpers.event import async_track_time_interval
 
-from . import timemachine as tm
+from .helpers import HistoricalState, hass_get_last_statistic
 
 LOGGER = logging.getLogger(__name__)
 
 
 class HistoricalSensor(SensorEntity):
+    UPDATE_INTERVAL = timedelta(seconds=30)
+
     """The HistoricalSensor class provides:
 
-    - self.historical_states
-    - self.should_poll
     - self.state
+    - self.historical_states
     - self.async_added_to_hass()
+    - self.async_will_remove_from_hass()
 
     Sensors based on HistoricalSensor must provide:
     - self._attr_historical_states
@@ -52,33 +53,14 @@ class HistoricalSensor(SensorEntity):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._attr_historical_states: list[HistoricalState] = []
 
-        self._attr_historical_states: list[tm.HistoricalState] = []
-
-    @cached_property
-    def should_poll(self) -> bool:
-        # HistoricalSensors MUST NOT poll.
-        # Polling creates incorrect states at intermediate time points.
-
-        return False
+    # @property
+    # def state(self) -> Any:
+    #     return STATE_UNKNOWN
 
     @property
-    def state(self) -> Any:
-        # Better report unknown than anything
-        #
-        # Another aproach is to return data from historical entity, but causes
-        # wrong results. Keep here for reference.
-        #
-        # HistoricalSensors doesn't use poll but state is accessed only once when
-        # the sensor is registered for the first time in the database
-        #
-        # if state := self.historical_state():
-        #     return float(state)
-
-        return STATE_UNKNOWN
-
-    @property
-    def historical_states(self) -> list[tm.HistoricalState]:
+    def historical_states(self) -> list[HistoricalState]:
         if hasattr(self, "_attr_historical_states"):
             return self._attr_historical_states
 
@@ -95,23 +77,54 @@ class HistoricalSensor(SensorEntity):
         """
         raise NotImplementedError()
 
-    async def async_added_to_hass(self):
+    async def async_added_to_hass(self) -> None:
+        """Once added to hass:
+        - Setup internal stuff with the Store to hold internal state
+        - Setup a peridioc call to update the entity
+        """
+
         await super().async_added_to_hass()
 
-        # unit_class and unit_class are required in StatisticsMetadata in
-        # order to generate statistics.
-
+        ## Ensure that statistics are OK.
+        # unit_class and unit_of_measurement fields are required for some
+        # functions like the energy panel.
+        # Just
         statistics_metadata = self.get_statistic_metadata()
         if not statistics_metadata.get("unit_class") or not statistics_metadata.get(
             "unit_of_measurement"
         ):
             msg = (
                 f"{self.entity_id}: incomplete statistic metadata."
-                + " Required fields: unit_class and unit_of_measurement."
-                + " Fix your get_statistic_metadata() method."
+                + " 'unit_of_measurement' are required for most of the"
+                + " statistics uses (like energy panel). If you are not"
+                + " setting those fields and you are not finding expected"
+                + " statistics, this is the reason."
+                + " Fix get_statistic_metadata() method in that case."
             )
-            LOGGER.error(msg)
-            raise ValueError(msg)
+            LOGGER.debug(msg)
+
+        ## Schedule refresh for historical data
+        # This weird mechanic comes from removed PollUpdateMixin.
+        # We need to improve this in future releases
+        await self._async_historical_handle_update()
+        self._remove_time_tracker_fn = async_track_time_interval(
+            self.hass,
+            self._async_historical_handle_update,
+            self.UPDATE_INTERVAL,
+        )
+
+        LOGGER.debug(
+            f"{self.entity_id}: "
+            + f"updating each {self.UPDATE_INTERVAL.total_seconds()} seconds "
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._remove_time_tracker_fn:
+            self._remove_time_tracker_fn()
+
+    async def _async_historical_handle_update(self, _=None) -> None:
+        await self.async_update_historical()
+        await self.async_write_historical()
 
     async def async_write_historical(self):
         """async_write_historical()
@@ -131,7 +144,7 @@ class HistoricalSensor(SensorEntity):
         await self._async_write_statistics(self.historical_states)
 
     async def _async_write_statistics(
-        self, hist_states: list[tm.HistoricalState]
+        self, hist_states: list[HistoricalState]
     ) -> list[StatisticData]:
         if not hist_states:
             return []
@@ -139,7 +152,7 @@ class HistoricalSensor(SensorEntity):
         hist_states = list(sorted(hist_states, key=lambda x: x.timestamp))
 
         statistics_metadata = self.get_statistic_metadata()
-        latest_statistic_data = await tm.hass_get_last_statistic(
+        latest_statistic_data = await hass_get_last_statistic(
             self.hass, statistics_metadata
         )
 
@@ -182,56 +195,56 @@ class HistoricalSensor(SensorEntity):
 
     async def async_calculate_statistic_data(
         self,
-        hist_states: list[tm.HistoricalState],
+        hist_states: list[HistoricalState],
         *,
         latest: StatisticsRow | None = None,
     ) -> list[StatisticData]:
         raise NotImplementedError()
 
 
-class PollUpdateMixin(HistoricalSensor):
-    """PollUpdateMixin for simulate poll update model
+# class PollUpdateMixin(HistoricalSensor):
+#     """PollUpdateMixin for simulate poll update model
 
-    This mixin provides:
+#     This mixin provides:
 
-      - UPDATE_INTERVAL: timedelta
-      - async_added_to_hass(self)
-      - async_will_remove_from_hass(self)
-      - _async_historical_handle_update(self)
-    """
+#       - UPDATE_INTERVAL: timedelta
+#       - async_added_to_hass(self)
+#       - async_will_remove_from_hass(self)
+#       - _async_historical_handle_update(self)
+#     """
 
-    """Historical Sensors have long update periods"""
-    UPDATE_INTERVAL: timedelta = timedelta(hours=1)
+#     """Historical Sensors have long update periods"""
+#     UPDATE_INTERVAL: timedelta = timedelta(hours=1)
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._remove_time_tracker_fn = None
+#     def __init__(self, *args, **kwargs):
+#         super().__init__(*args, **kwargs)
+#         self._remove_time_tracker_fn = None
 
-    async def async_added_to_hass(self) -> None:
-        """Once added to hass:
-        - Setup internal stuff with the Store to hold internal state
-        - Setup a peridioc call to update the entity
-        """
+#     async def async_added_to_hass(self) -> None:
+#         """Once added to hass:
+#         - Setup internal stuff with the Store to hold internal state
+#         - Setup a peridioc call to update the entity
+#         """
 
-        await super().async_added_to_hass()
+#         await super().async_added_to_hass()
 
-        LOGGER.debug(f"{self.entity_id}: added to hass, do initial update")
-        await self._async_historical_handle_update()
-        self._remove_time_tracker_fn = async_track_time_interval(
-            self.hass,
-            self._async_historical_handle_update,
-            self.UPDATE_INTERVAL,
-        )
+#         LOGGER.debug(f"{self.entity_id}: added to hass, do initial update")
+#         await self._async_historical_handle_update()
+#         self._remove_time_tracker_fn = async_track_time_interval(
+#             self.hass,
+#             self._async_historical_handle_update,
+#             self.UPDATE_INTERVAL,
+#         )
 
-        LOGGER.debug(
-            f"{self.entity_id}: "
-            + f"updating each {self.UPDATE_INTERVAL.total_seconds()} seconds "
-        )
+#         LOGGER.debug(
+#             f"{self.entity_id}: "
+#             + f"updating each {self.UPDATE_INTERVAL.total_seconds()} seconds "
+#         )
 
-    async def async_will_remove_from_hass(self) -> None:
-        if self._remove_time_tracker_fn:
-            self._remove_time_tracker_fn()
+#     async def async_will_remove_from_hass(self) -> None:
+#         if self._remove_time_tracker_fn:
+#             self._remove_time_tracker_fn()
 
-    async def _async_historical_handle_update(self, _: datetime | None = None) -> None:
-        await self.async_update_historical()
-        await self.async_write_historical()
+#     async def _async_historical_handle_update(self, _: datetime | None = None) -> None:
+#         await self.async_update_historical()
+#         await self.async_write_historical()

@@ -14,8 +14,6 @@ from homeassistant.components.recorder.statistics import (
     StatisticsRow,
     get_last_statistics,
 )
-from homeassistant.const import MAJOR_VERSION, MINOR_VERSION
-from homeassistant.const import __version__ as HA_FULL_VERSION
 from homeassistant.core import HomeAssistant
 
 LOGGER = logging.getLogger(__name__)

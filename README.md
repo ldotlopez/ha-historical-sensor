@@ -48,19 +48,34 @@ Current projects using this module:
 
 See [https://github.com/ldotlopez/ha-historical-sensor/issues/18] for detailed explanation and migration guide.
 
+## What Makes `HistoricalSensor` Special
+
+`HistoricalSensor` is not a normal Home Assistant sensor. It exists to import past measurements into Home Assistant statistics, not to expose a live state.
+
+The important differences are:
+
+- The entity state stays `Unknown`; the current reading is intentionally not represented as a live state.
+- You fill `self._attr_historical_states` in `async_update_historical()` with `HistoricalState` objects.
+- `get_statistic_metadata()` must return valid statistics metadata, including `unit_class`, `unit_of_measurement`, and the flags that describe how the statistic should be aggregated.
+- `async_calculate_statistic_data()` is where you turn historical points into `StatisticData` rows.
+- The library handles overlap detection and writes statistics through Home Assistant's official external statistics API.
+
+The delorian integration in [`custom_components/delorian/sensor.py`](custom_components/delorian/sensor.py) is the best reference for the actual entity shape and data flow.
+
 ## How to implement a historical sensor
 
-💡 Check the delorian test integration in this repository
+If you only need the entity-level pattern, the steps below are the core sensor implementation details. The delorian integration above combines them with the Home Assistant custom-component scaffolding.
 
 1. Import home_assistant_historical_sensor and define your sensor.
    _⚠️ **Don't** set the SensorEntity.state_class property. See FAQ below_
 ```python
 from homeassistant_historical_sensor import (
-    HistoricalSensor, HistoricalState, PollUpdateMixin,
+    HistoricalSensor,
+    HistoricalState,
 )
 
 
-class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
+class Sensor(HistoricalSensor, SensorEntity):
     ...
 ```
 
@@ -70,7 +85,7 @@ attribute.
 ```python
 async def async_update_historical(self):
     self._attr_historical_states = [
-        HistoricalState(state=x.state, timestamp=x.when.timestamp()) 
+        HistoricalState(state=x.state, timestamp=x.when.timestamp())
         for x in await api.fetch()
     ]
 ```
@@ -82,9 +97,10 @@ Note: `timestamp` expects a Unix timestamp (float).
 def get_statistic_metadata(self) -> StatisticMetaData:
     meta = super().get_statistic_metadata()
     meta["has_sum"] = True  # For counters (energy, water, gas)
-    # OR
-    meta["has_mean"] = True  # For measurements (temperature, power)
-    
+    meta["source"] = self.entity_id.split(".", 1)[0]
+    meta["unit_class"] = EnergyConverter.UNIT_CLASS
+    meta["unit_of_measurement"] = UnitOfEnergy.KILO_WATT_HOUR
+
     return meta
 ```
 
@@ -93,9 +109,9 @@ def get_statistic_metadata(self) -> StatisticMetaData:
 This method calculates statistics from your historical states. Check the delorian integration for a full example.
 ```python
 async def async_calculate_statistic_data(
-    self, 
-    hist_states: list[HistoricalState], 
-    *, 
+    self,
+    hist_states: list[HistoricalState],
+    *,
     latest: StatisticsRow | None = None,
 ) -> list[StatisticData]:
     # Calculate hourly statistics from your states
@@ -118,7 +134,7 @@ A. The architecture is straightforward:
 
   3. **`async_calculate_statistic_data` method**: Calculates statistics (sum/mean/min/max) from historical states. **You must implement this to generate statistics.**
 
-  4. **`async_write_ha_historical_states` method**: Implemented by `HistoricalSensor`, handles writing statistics to Home Assistant using the official `async_import_statistics` API.
+    4. **`async_write_historical` method**: Implemented by `HistoricalSensor`, handles writing statistics to Home Assistant using the official `async_add_external_statistics` API.
 
 **Q. What happened to state writing?**
 
@@ -128,14 +144,6 @@ A. **Removed in v3.0.** Writing states directly to the database was extremely co
 - Sufficient for energy dashboards and long-term trends
 
 Individual state points no longer appear in entity history graphs, but statistics work perfectly for energy monitoring and trend analysis.
-
-**Q. What is `PollUpdateMixin` and why do I need to inherit from it?**
-
-A. Home Assistant sensors can use [the poll or the push model](https://developers.home-assistant.io/docs/integration_fetching_data/#push-vs-poll) to update data.
-
-Historical sensors use a false push model: they are never updated by themselves (the `state` property always returns `STATE_UNKNOWN`).
-
-`PollUpdateMixin` provides automatic periodic updates without any code. The sensor will be updated at startup and every hour. This interval can be configured via the `UPDATE_INTERVAL` class attribute.
 
 **Q. Why should I NOT set the `state_class` property?**
 
@@ -162,11 +170,28 @@ A. Energy dashboard uses statistics, not sensor states. If your sensor doesn't a
 3. Trigger an update to import data and generate statistics
 4. Statistics will appear after the first successful import
 
+**Q. What should I return from `get_statistic_metadata()`?**
+
+A. Return metadata that describes the imported statistic, not the live entity state. The important fields are:
+
+- `unit_class`: required. Use the matching Home Assistant unit class for the measurement domain, such as `energy`.
+- `unit_of_measurement`: required. Use the exact unit that matches the data being imported, such as `kWh` for energy.
+- `source`: usually the integration domain, which the base implementation derives from `entity_id`.
+- `statistic_id`: the external statistic id in `<domain>:<object_id>` format. For `sensor.delorian`, this becomes `sensor:delorian`.
+- `has_sum`: set this to `True` for cumulative counters such as energy, water, or gas.
+- `has_mean`: set this to `True` when average values are meaningful for the statistic.
+
+The default implementation from `HistoricalSensor` already derives `statistic_id` and `source` from `entity_id`. Override only the fields that describe the measurement itself. For energy sensors, import the unit-class helper explicitly:
+
+```python
+from homeassistant.util.unit_conversion import EnergyConverter
+```
+
 **Q. Can I provide BOTH current state AND historical statistics?**
 
-A. You need two separate sensors:
-- One regular sensor for current state (with `state_class`)
-- One HistoricalSensor for importing historical statistics
+A. Yes. The sensor can expose real live data, and this library can still generate the appropriate historical statistics. The important constraint is that the sensor should not opt into Home Assistant's native statistics pipeline with `state_class` or related statistics hooks, because that can conflict with the statistics generated by this library.
+
+Use the sensor state for the live value, and let `HistoricalSensor` handle historical imports and recorder statistics through `get_statistic_metadata()` and `async_calculate_statistic_data()`.
 
 If you're using the [data coordinator pattern](https://developers.home-assistant.io/docs/integration_fetching_data/#coordinated-single-api-poll-for-data-for-all-entities), this should be straightforward.
 
@@ -192,7 +217,7 @@ A. No. The library handles this automatically:
 
 3. **Minimum Home Assistant version**: Now requires HA >= 2025.12.0
 
-4. **`statistic_id` property removed**: Statistics now always use `entity_id`
+4. **`statistic_id` property removed**: Statistics now derive an external statistic id from `entity_id`
 
 5. **No more state writing**: Only statistics are written to the database
 
@@ -224,7 +249,7 @@ group_by_interval(states, granularity=3600)
 
 - All internal state writing methods
 - Direct database manipulation utilities
-- `statistic_id` property (uses `entity_id` now)
+- `statistic_id` property (external statistic id derived from `entity_id`)
 - `patches.py` module
 
 ## Helper Functions
@@ -236,7 +261,7 @@ Groups historical states into time intervals (typically hourly) for statistics c
 from homeassistant_historical_sensor import group_by_interval
 
 for block_timestamp, states_in_hour in group_by_interval(
-    hist_states, 
+    hist_states,
     granularity=60 * 60  # 1 hour in seconds
 ):
     states = list(states_in_hour)

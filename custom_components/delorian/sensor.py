@@ -25,25 +25,22 @@
 
 import statistics
 from datetime import datetime, timedelta
+from logging import getLogger
 from zoneinfo import ZoneInfo
 
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
-from homeassistant.components.sensor import (
-    SensorDeviceClass,
-    SensorEntity,
-    SensorStateClass,
-)
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import DiscoveryInfoType
 from homeassistant.util import dt as dtutil
 
-from homeassistant_historical_sensor import (
+from homeassistant_historical_sensor import (  # PollUpdateMixin,
     HistoricalSensor,
     HistoricalState,
-    PollUpdateMixin,
     group_by_interval,
 )
 
@@ -52,40 +49,36 @@ from .const import DOMAIN, NAME
 
 PLATFORM = "sensor"
 UNIT_CLASS_ENERGY = "energy"
+LOGGER = getLogger(__name__)
 
 
-class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
-    #
-    # Base clases:
-    # - SensorEntity: This is a sensor, obvious
-    # - HistoricalSensor: This sensor implements historical sensor methods
-    # - PollUpdateMixin: Historical sensors disable poll, this mixing
-    #                    reenables poll only for historical states and not for
-    #                    present state
-    #
-
-    def __init__(self, *args, **kwargs):
+class Sensor(
+    # HistoricalSensor: This sensor implements historical sensor methods
+    HistoricalSensor,
+    # SensorEntity: This is a sensor, obvious
+    SensorEntity,
+):
+    def __init__(self, *args, device_info: DeviceInfo, **kwargs):
         super().__init__()
 
         self._attr_has_entity_name = True
         self._attr_name = NAME
 
         self._attr_unique_id = f"{PLATFORM}.{NAME}"
-        self._attr_entity_id = f"{PLATFORM}.{NAME}"
 
         self._attr_entity_registry_enabled_default = True
         self._attr_entity_registry_visible_default = True
         self._attr_state = None
 
-        # self._attr_device_info = device_info
+        self._attr_device_info = device_info
 
-        # Define whatever you are
-        # self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
-        # self._attr_device_class = SensorDeviceClass.ENERGY
+        # Avoid defining statistics opt-in attribute since they can cause
+        # conflicts
 
         self.api = API()
 
     async def async_added_to_hass(self) -> None:
+        LOGGER.info(f"{self.name} added to hass")
         await super().async_added_to_hass()
 
     async def async_update_historical(self):
@@ -116,6 +109,7 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         ]
 
         self._attr_historical_states = historical_states
+        LOGGER.info("historical data updated from upstream")
 
     def get_statistic_metadata(self) -> StatisticMetaData:
         #
@@ -126,7 +120,7 @@ class Sensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         meta = super().get_statistic_metadata()
         meta["has_sum"] = True
         meta["has_mean"] = True
-        meta["unit_class"] = UNIT_CLASS_ENERGY
+        meta["unit_class"] = SensorDeviceClass.ENERGY
         meta["unit_of_measurement"] = UnitOfEnergy.KILO_WATT_HOUR
         return meta
 

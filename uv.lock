@@ -1238,7 +1238,7 @@ wheels = [
 
 [[package]]
 name = "homeassistant-historical-sensor"
-version = "3.0.0a3"
+version = "3.0.0a5"
 source = { editable = "." }
 dependencies = [
     { name = "importlib-metadata" },

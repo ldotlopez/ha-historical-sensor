@@ -16,17 +16,13 @@
 # USA.
 
 
-from .sensor import HistoricalSensor, PollUpdateMixin
-from .timemachine import (
-    HistoricalState,
-    group_by_interval,
-    hass_get_last_statistic,
-)
+from .helpers import HistoricalState, group_by_interval, hass_get_last_statistic
+from .sensor import HistoricalSensor  # , PollUpdateMixin
 
 __all__ = [
     "HistoricalSensor",
     "HistoricalState",
-    "PollUpdateMixin",
+    # "PollUpdateMixin",
     "group_by_interval",
     "hass_get_last_statistic",
 ]
